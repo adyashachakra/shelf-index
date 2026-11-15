@@ -1,0 +1,457 @@
+// Shared data shapes. Safe to import from both server and browser code (types only).
+
+export type CategoryId =
+  | 'skincare'
+  | 'fashion'
+  | 'homeware'
+  | 'cookware'
+  | 'beverages'
+  | 'agencies'
+  | 'other';
+
+export type Tier = 'full' | 'reduced' | 'minimal';
+export type ConfidenceLevel = 'high' | 'medium' | 'low';
+
+// ---------- Metrics ----------
+
+export interface ScoredMetric {
+  status: 'scored';
+  score: number;
+  confidence: ConfidenceLevel;
+  confidenceReason: string;
+}
+export interface InsufficientMetric {
+  status: 'insufficient';
+  reason: string;
+}
+export interface NotMeasuredMetric {
+  status: 'not_measured';
+  reason: string;
+}
+export type Metric = ScoredMetric | InsufficientMetric;
+export type MetricOrSkipped = Metric | NotMeasuredMetric;
+
+// ---------- Gemini answers ----------
+
+export interface CategoryQuestion {
+  id: string;
+  intent: string;
+  text: string;
+}
+
+export interface AnswerRecommendation {
+  brand: string;
+  why: string;
+}
+export interface AnswerMention {
+  brand: string;
+  stance: 'neutral' | 'cautioned';
+}
+export interface GeminiAnswer {
+  /** Evidence id: G1..G8 for category questions, GS for the signature-claim question. */
+  id: string;
+  questionId: string;
+  question: string;
+  intent: string;
+  status: 'answered' | 'failed';
+  failureReason?: string;
+  answer?: string;
+  recommendations?: AnswerRecommendation[];
+  alsoMentioned?: AnswerMention[];
+  model?: string;
+  askedAt?: string;
+}
+
+export type Placement =
+  | { kind: 'recommended'; position: number }
+  | { kind: 'mentioned' }
+  | { kind: 'cautioned' }
+  | { kind: 'absent' };
+
+export interface VisibilityRow {
+  answerId: string;
+  questionId: string;
+  question: string;
+  intent: string;
+  state: 'counted' | 'excluded' | 'no_answer';
+  placement?: Placement;
+  credit?: number;
+  topBrands: string[];
+  why?: string;
+  exclusionReason?: string;
+  failureReason?: string;
+}
+
+export interface VisibilityDetail {
+  planned: number;
+  answered: number;
+  failed: number;
+  excluded: number;
+  counted: number;
+  creditSum: number;
+  appearances: number;
+  averagePosition: number | null;
+  rows: VisibilityRow[];
+}
+
+export interface BrandProfile {
+  recognized: boolean;
+  description: string;
+  knownFor: string[];
+  products: string[];
+  pricePositioning: string;
+  officialDomain: string;
+  strengths: string[];
+  criticisms: string[];
+  claims: { text: string; type: string; polarity: 'positive' | 'negative' | 'neutral' }[];
+  model?: string;
+}
+
+// ---------- Evidence ----------
+
+export type EvidenceKind =
+  | 'discussion'
+  | 'review'
+  | 'youtube_video'
+  | 'youtube_comment'
+  | 'site_page'
+  | 'claim_source'
+  | 'competitor_source';
+
+export interface EvidenceItem {
+  id: string;
+  kind: EvidenceKind;
+  url: string;
+  domain: string;
+  title: string;
+  text: string;
+  /** The thread, page or video this item belongs to (for a comment: its video). */
+  sourceUrl: string;
+  /** Sponsorship or affiliate disclosure signals found in the source, if any. */
+  sponsored?: string[];
+  channel?: string;
+  likeCount?: number;
+  competitor?: string;
+}
+
+export type Voice = 'customer' | 'creator' | 'publication' | 'brand' | 'unclear';
+export type Sentiment = 'positive' | 'mixed' | 'negative' | 'neutral';
+
+export interface EvidenceLabel {
+  id: string;
+  relevant: boolean;
+  voice: Voice;
+  sentiment: Sentiment;
+}
+
+export interface Theme {
+  label: string;
+  summary: string;
+  evidenceIds: string[];
+  quote?: { evidenceId: string; text: string };
+}
+export interface Concern {
+  id: string;
+  label: string;
+  evidenceIds: string[];
+}
+export interface AdvocacyNote {
+  evidenceId: string;
+  note: string;
+}
+
+export interface SentimentCounts {
+  positive: number;
+  mixed: number;
+  negative: number;
+}
+
+export type CountedVoice = 'customer' | 'creator' | 'publication' | 'unclear';
+
+export interface PerceptionDetail {
+  itemsRetrieved: number;
+  itemsLabeled: number;
+  /** Unweighted item counts. */
+  raw: SentimentCounts & {
+    counted: number;
+    neutral: number;
+    irrelevant: number;
+    brandCreated: number;
+  };
+  /** Weighted counts used in the score (customer 1.0; creator, publication, unclear 0.5). */
+  weighted: SentimentCounts & { total: number };
+  /** Distinct threads, pages and videos among counted items. */
+  uniqueSources: number;
+  uniqueDomains: string[];
+  /** Voices present among counted items. */
+  sourceTypes: CountedVoice[];
+  byVoice: Record<CountedVoice, number>;
+  /** Same formula on one voice only; null when that voice has fewer than 5 counted items. */
+  voiceScores: { customer: number | null; creator: number | null; publication: number | null };
+  sponsoredItems: { evidenceId: string; signals: string[] }[];
+}
+
+export interface PerceptionSection {
+  metric: Metric;
+  detail: PerceptionDetail;
+  praise: Theme[];
+  complaints: Theme[];
+  concerns: Concern[];
+  advocacy: AdvocacyNote[];
+  /** AI-written note on creator vs customer differences; empty when it cannot be told. */
+  creatorVsCustomer: string;
+  themesNote?: string;
+}
+
+// ---------- Brand site and content gap ----------
+
+export type CoverageLevel = 'clear' | 'partial' | 'none';
+
+export interface SitePage {
+  id: string;
+  url: string;
+  title: string;
+  text: string;
+  section: string;
+}
+
+export interface QuoteRef {
+  pageId: string;
+  url: string;
+  quote: string;
+}
+export interface ProductLine {
+  name: string;
+  ref: QuoteRef;
+}
+export interface PositioningStatement {
+  statement: string;
+  ref: QuoteRef;
+}
+
+export interface ChecklistItem {
+  id: string;
+  source: 'category_question' | 'customer_concern';
+  text: string;
+  level: CoverageLevel;
+  url?: string;
+  quote?: string;
+  /** True when the model's label could not be verified against the page and was lowered one level. */
+  downgraded?: boolean;
+  /** For category questions: did Gemini name the audited brand when answering it? */
+  geminiNamedBrand?: boolean | null;
+}
+
+export interface ExcludedQuestion {
+  questionId: string;
+  question: string;
+  reason: string;
+}
+
+export interface ContentGapDetail {
+  domain: string | null;
+  pagesRead: number;
+  sections: string[];
+  checklist: ChecklistItem[];
+  excluded: ExcludedQuestion[];
+  productLines: ProductLine[];
+  positioning: PositioningStatement[];
+  signatureClaim: { claim: string; ref: QuoteRef } | null;
+  points: number;
+}
+
+export interface ContentGapSection {
+  metric: Metric;
+  detail: ContentGapDetail;
+}
+
+// ---------- Claims ----------
+
+export type ClaimVerdict = 'supported' | 'contradicted' | 'unverified';
+
+export interface ClaimCheck {
+  id: string;
+  text: string;
+  type: string;
+  polarity: 'positive' | 'negative' | 'neutral';
+  /** Where Gemini said it: an answer id (G1..) or GP for its brand description. */
+  origin: string;
+  verdict: ClaimVerdict;
+  evidenceId?: string;
+  url?: string;
+  quote?: string;
+  note?: string;
+}
+
+// ---------- Competitors ----------
+
+export interface CompetitorRow {
+  name: string;
+  isAuditedBrand: boolean;
+  visibility: Metric;
+  appearances: number;
+  sentiment: MetricOrSkipped;
+  sentimentSample: number;
+  contentCoverage: NotMeasuredMetric;
+}
+
+export interface CompetitorSection {
+  rows: CompetitorRow[];
+  note: string;
+}
+
+// ---------- Synthesis ----------
+
+export interface Disagreement {
+  title: string;
+  kind: 'disagreement' | 'opportunity' | 'risk';
+  audienceSays: string;
+  geminiSays: string;
+  implication: string;
+  audienceEvidenceIds: string[];
+  geminiEvidenceIds: string[];
+}
+
+export interface DisconnectSection {
+  status: 'assessed' | 'cannot_assess';
+  reason?: string;
+  direction?: 'ai_under' | 'ai_over' | 'aligned';
+  gap?: number;
+  headline?: string;
+  disagreements: Disagreement[];
+  note?: string;
+}
+
+export type CheckStatus = 'observed' | 'not_observed' | 'cannot_assess';
+
+export interface InsightEvidence {
+  id: string;
+  label: string;
+  url?: string;
+  quote?: string;
+}
+
+export interface BetweenLinesCheck {
+  id: string;
+  title: string;
+  status: CheckStatus;
+  /** "computed" = decided by code from counts and positions; "ai_interpretation" = Gemini's reading of verified evidence. */
+  basis: 'computed' | 'ai_interpretation';
+  observed?: string;
+  evidence: InsightEvidence[];
+  whyItMatters?: string;
+  implication?: string;
+  reason?: string;
+}
+
+export interface FixItem {
+  action: string;
+  why: string;
+  priority: number;
+  effort: 'Low' | 'Medium' | 'High';
+  expectedImpact: string;
+  evidenceIds: string[];
+}
+
+// ---------- Methodology ----------
+
+export interface SearchLogEntry {
+  purpose: string;
+  query: string;
+  scope: string;
+  results: number;
+  kept: number;
+  credits: number;
+  ok: boolean;
+  note?: string;
+}
+
+export interface Methodology {
+  auditedAt: string;
+  model: string;
+  questionBankVersion: string;
+  tier: Tier;
+  questions: { planned: number; answered: number; failed: number; excluded: number; counted: number };
+  searches: SearchLogEntry[];
+  tavilyCreditsUsed: number;
+  geminiRequests: number;
+  youtube: { status: 'ok' | 'partial' | 'unavailable' | 'skipped'; videos: number; comments: number; note?: string };
+  sitePages: number;
+  unavailable: string[];
+  limitations: string[];
+}
+
+export type OverallConfidence =
+  | { status: 'stated'; level: ConfidenceLevel; limitedBy: string }
+  | { status: 'not_stated'; reason: string };
+
+// ---------- The report ----------
+
+export interface Report {
+  version: 1;
+  id: string;
+  /** True only for the bundled example with a fictional brand. */
+  illustrative?: boolean;
+  brand: string;
+  brandKey: string;
+  category: { id: CategoryId; label: string };
+  createdAt: string;
+  model: string;
+  tier: Tier;
+  overallConfidence: OverallConfidence;
+  visibility: { metric: Metric; detail: VisibilityDetail };
+  brandProfile: BrandProfile | null;
+  signatureAnswer: GeminiAnswer | null;
+  answers: GeminiAnswer[];
+  perception: PerceptionSection;
+  contentGap: ContentGapSection;
+  claims: ClaimCheck[];
+  claimsNote?: string;
+  competitors: CompetitorSection;
+  disconnect: DisconnectSection;
+  betweenTheLines: BetweenLinesCheck[];
+  fixes: FixItem[];
+  fixesNote?: string;
+  /** Every piece of evidence the report cites, keyed by id in the UI. */
+  evidence: EvidenceItem[];
+  methodology: Methodology;
+  warnings: string[];
+}
+
+// ---------- Progress (what the browser sees while an audit runs) ----------
+
+export type JobStatus = 'running' | 'paused' | 'complete' | 'failed';
+
+export interface StageSnapshot {
+  id: string;
+  label: string;
+  state: 'done' | 'active' | 'pending';
+  note?: string;
+}
+
+export interface JobSnapshot {
+  id: string;
+  brand: string;
+  categoryLabel: string;
+  status: JobStatus;
+  stages: StageSnapshot[];
+  warnings: string[];
+  waitSeconds?: number;
+  waitReason?: string;
+  busy?: boolean;
+  error?: string;
+}
+
+export type StartErrorCode =
+  | 'invalid'
+  | 'setup'
+  | 'daily_limit'
+  | 'visitor_limit'
+  | 'monthly_limit'
+  | 'gemini_quota'
+  | 'storage'
+  | 'too_many_requests';
+
+export type StartResponse =
+  | { status: 'started' | 'in_progress' | 'cached'; id: string }
+  | { status: 'error'; code: StartErrorCode; message: string };

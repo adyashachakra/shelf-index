@@ -1,0 +1,100 @@
+@import "tailwindcss";
+
+/* Fonts are loaded in app/layout.tsx and exposed as CSS variables. */
+@theme inline {
+  --font-sans: var(--font-archivo, 'Archivo'), ui-sans-serif, system-ui, sans-serif;
+  --font-serif: var(--font-source-serif, 'Source Serif 4'), ui-serif, Georgia, serif;
+}
+
+/* Design tokens. "static" makes every token available as a CSS variable. */
+@theme static {
+  --color-paper: #f4f6f8;
+  --color-surface: #ffffff;
+  --color-ink: #101b2d;
+  --color-ink-soft: #435066;
+  --color-ink-faint: #64708a;
+  --color-rule: #d2d8e1;
+  --color-mark: #ffe45c;
+  --color-accent: #2440b3;
+  --color-series-1: #2a78d6;
+  --color-series-2: #eb6834;
+}
+
+@layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+  body {
+    background: var(--color-paper);
+    color: var(--color-ink);
+    font-family: var(--font-source-serif, 'Source Serif 4'), ui-serif, Georgia, serif;
+    font-size: 1.0625rem;
+    line-height: 1.65;
+  }
+  h1,
+  h2,
+  h3,
+  h4 {
+    font-family: var(--font-archivo, 'Archivo'), ui-sans-serif, system-ui, sans-serif;
+    line-height: 1.15;
+    letter-spacing: -0.012em;
+  }
+  a {
+    color: var(--color-accent);
+    text-decoration: underline;
+    text-decoration-thickness: 1px;
+    text-underline-offset: 3px;
+  }
+  a:hover {
+    text-decoration-thickness: 2px;
+  }
+  :focus-visible {
+    outline: 3px solid var(--color-accent);
+    outline-offset: 2px;
+  }
+  ::selection {
+    background: var(--color-mark);
+  }
+}
+
+@layer components {
+  /* Highlighter stroke: used on evidence quotes and the one phrase that matters on a page. */
+  .mark {
+    background: linear-gradient(transparent 56%, var(--color-mark) 56%, var(--color-mark) 93%, transparent 93%);
+    box-decoration-break: clone;
+    -webkit-box-decoration-break: clone;
+  }
+  /* A shelf edge: the thick rule that opens each section and each score tag. */
+  .shelf {
+    border-top: 3px solid var(--color-ink);
+  }
+  .ui {
+    font-family: var(--font-archivo, 'Archivo'), ui-sans-serif, system-ui, sans-serif;
+  }
+  .numeral {
+    font-family: var(--font-archivo, 'Archivo'), ui-sans-serif, system-ui, sans-serif;
+    font-variant-numeric: tabular-nums lining-nums;
+    font-weight: 700;
+    letter-spacing: -0.03em;
+    line-height: 0.95;
+  }
+  .no-data {
+    background-image: repeating-linear-gradient(135deg, transparent 0 7px, rgba(16, 27, 45, 0.07) 7px 8px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation: none !important;
+    transition: none !important;
+  }
+}
+
+@media print {
+  body {
+    background: #ffffff;
+  }
+  .no-print {
+    display: none !important;
+  }
+}
