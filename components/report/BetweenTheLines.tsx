@@ -9,10 +9,12 @@ const STATUS_TEXT: Record<BetweenLinesCheck['status'], string> = {
 
 function Check({ check, report }: { check: BetweenLinesCheck; report: Report }) {
   const observed = check.status === 'observed';
+  const tentative = observed && check.strength === 'tentative';
+  const statusText = check.statusLabel ?? STATUS_TEXT[check.status];
   return (
     <li className={`border-b border-rule py-5 ${observed ? '' : 'text-ink-soft'}`}>
       <p className="ui text-[0.85rem] font-semibold">
-        <span className={observed ? 'mark text-ink' : ''}>{STATUS_TEXT[check.status]}</span>
+        <span className={observed && !tentative ? 'mark text-ink' : observed ? 'text-ink underline' : ''}>{statusText}</span>
         <span className="font-normal text-ink-faint">
           {' '}
           {check.basis === 'computed' ? 'Decided by calculation' : "An AI model's reading of verified evidence"}
@@ -24,7 +26,7 @@ function Check({ check, report }: { check: BetweenLinesCheck; report: Report }) 
 
       {check.evidence.length > 0 ? (
         <div className="mt-3 max-w-3xl">
-          <p className="ui text-[0.9rem] font-semibold text-ink">Verified evidence</p>
+          <p className="ui text-[0.9rem] font-semibold text-ink">{check.status === 'cannot_assess' ? 'What was measured' : 'Verified evidence'}</p>
           <ul className="ui mt-1 list-disc space-y-1 pl-5 text-[0.92rem]">
             {check.evidence.map((entry, index) => (
               <li key={`${entry.id}-${index}`}>
@@ -53,7 +55,7 @@ function Check({ check, report }: { check: BetweenLinesCheck; report: Report }) 
           ) : null}
           {check.implication ? (
             <p className="mt-1">
-              <span className="font-semibold">Strategic implication: </span>
+              <span className="font-semibold">Possible implication, not tested: </span>
               {check.implication}
             </p>
           ) : null}
@@ -64,12 +66,16 @@ function Check({ check, report }: { check: BetweenLinesCheck; report: Report }) 
 }
 
 export function BetweenTheLines({ report }: { report: Report }) {
-  const observed = report.betweenTheLines.filter((c) => c.status === 'observed').length;
+  const established = report.betweenTheLines.filter((c) => c.status === 'observed' && c.strength !== 'tentative').length;
+  const tentative = report.betweenTheLines.filter((c) => c.status === 'observed' && c.strength === 'tentative').length;
+  const notObserved = report.betweenTheLines.filter((c) => c.status === 'not_observed').length;
+  const unassessed = report.betweenTheLines.filter((c) => c.status === 'cannot_assess').length;
+  const summary = `${established} ${established === 1 ? 'was' : 'were'} observed, ${tentative} ${tentative === 1 ? 'is' : 'are'} possible on limited evidence, ${notObserved} ${notObserved === 1 ? 'was' : 'were'} checked and not observed, and ${unassessed} could not be assessed.`;
   return (
     <Section
       id="between-the-lines"
       title="Between the lines"
-      intro={`Seven patterns are checked in every audit. ${observed} ${observed === 1 ? 'was' : 'were'} observed here. A pattern is reported only when it can be tied to evidence from this audit. Where the connection could not be made, the report says so and does not offer an explanation.`}
+      intro={`Seven patterns are checked in every audit. Here ${summary} A pattern is reported as observed only when this audit holds the evidence to establish it. Where it does not, the report says so and offers no explanation.`}
     >
       <ul>
         {report.betweenTheLines.map((check) => (

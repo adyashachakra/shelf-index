@@ -17,6 +17,7 @@ import type {
   EvidenceLabel,
   Metric,
   PerceptionDetail,
+  SampleCounts,
   SentimentCounts,
 } from '../types';
 
@@ -29,6 +30,17 @@ export const VOICE_WEIGHTS: Record<CountedVoice, number> = {
 export const MIN_COUNTED_ITEMS = 8;
 export const MIN_DISTINCT_SOURCES = 3;
 const MIN_ITEMS_FOR_VOICE_SCORE = 5;
+
+function emptyCounts(): SampleCounts {
+  return { discussions: 0, reviews: 0, videos: 0, comments: 0 };
+}
+
+function countKey(item: EvidenceItem): keyof SampleCounts {
+  if (item.kind === 'discussion') return 'discussions';
+  if (item.kind === 'youtube_video') return 'videos';
+  if (item.kind === 'youtube_comment') return 'comments';
+  return 'reviews';
+}
 
 /** The score formula on its own. Returns null when there is nothing to count. */
 export function sentimentScore(counts: SentimentCounts): number | null {
@@ -55,13 +67,22 @@ export function scorePerception(
     publication: { positive: 0, mixed: 0, negative: 0 },
   };
   const sources = new Set<string>();
+  const relevantSources = new Set<string>();
   const domains = new Set<string>();
   let itemsLabeled = 0;
+  // Material read -> material about the brand -> opinions counted, by kind of material.
+  const sample = { read: emptyCounts(), aboutBrand: emptyCounts(), counted: emptyCounts() };
 
   for (const item of items) {
+    const kind = countKey(item);
+    sample.read[kind] += 1;
     const label = labelById.get(item.id);
     if (!label) continue;
     itemsLabeled += 1;
+    if (label.relevant) {
+      sample.aboutBrand[kind] += 1;
+      relevantSources.add(item.sourceUrl || item.url);
+    }
     if (!label.relevant) {
       raw.irrelevant += 1;
       continue;
@@ -78,6 +99,7 @@ export function scorePerception(
     const weight = VOICE_WEIGHTS[voice];
     raw[label.sentiment] += 1;
     raw.counted += 1;
+    sample.counted[kind] += 1;
     weighted[label.sentiment] += weight;
     weighted.total += weight;
     byVoice[voice] += 1;
@@ -101,6 +123,7 @@ export function scorePerception(
       total: round2(weighted.total),
     },
     uniqueSources: sources.size,
+    sourcesAboutBrand: relevantSources.size,
     uniqueDomains: [...domains].sort(),
     sourceTypes,
     byVoice,
@@ -112,6 +135,7 @@ export function scorePerception(
     sponsoredItems: items
       .filter((item) => item.sponsored && item.sponsored.length > 0)
       .map((item) => ({ evidenceId: item.id, signals: item.sponsored ?? [] })),
+    sample,
   };
 
   if (raw.counted < MIN_COUNTED_ITEMS) {
@@ -127,7 +151,7 @@ export function scorePerception(
     return {
       metric: {
         status: 'insufficient',
-        reason: `The ${raw.counted} usable opinions come from only ${sources.size} source${sources.size === 1 ? '' : 's'} (at least ${MIN_DISTINCT_SOURCES} distinct threads, pages or videos are needed).`,
+        reason: `The ${raw.counted} usable opinions come from only ${sources.size} unique source${sources.size === 1 ? '' : 's'} (at least ${MIN_DISTINCT_SOURCES} separate threads, pages or videos are needed).`,
       },
       detail,
     };
@@ -143,7 +167,7 @@ export function scorePerception(
       status: 'scored',
       score,
       confidence,
-      confidenceReason: `${raw.counted} counted opinions from ${sources.size} sources across ${domains.size} unique domain${domains.size === 1 ? '' : 's'}; source types: ${typeList}.`,
+      confidenceReason: `${raw.counted} counted opinions, drawn from ${sources.size} unique source${sources.size === 1 ? '' : 's'} (threads, pages or videos) on ${domains.size} website${domains.size === 1 ? '' : 's'}. Voices heard: ${typeList}.`,
     },
     detail,
   };

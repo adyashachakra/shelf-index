@@ -21,6 +21,8 @@ export function Disconnect({ report }: { report: Report }) {
       <p className="ui mt-3 max-w-3xl text-[0.9rem] text-ink-soft">
         The headline compares the two scores and is calculated. The points below are an AI model&apos;s reading of the
         evidence: each one is shown only because it cites a real Gemini answer and real audience evidence from this audit.
+        The number of sources behind each point is counted and shown, because a point resting on two reports is not a
+        finding about all customers.
       </p>
 
       {d.disagreements.length === 0 ? (
@@ -35,7 +37,9 @@ export function Disconnect({ report }: { report: Report }) {
               <h3 className="mt-1 text-xl font-semibold">{item.title}</h3>
               <div className="mt-3 grid gap-6 md:grid-cols-2">
                 <div>
-                  <p className="ui text-[0.9rem] font-semibold">People say</p>
+                  <p className="ui text-[0.9rem] font-semibold">
+                    Reported by {item.audienceSourceCount} {item.audienceSourceCount === 1 ? 'source' : 'sources'}
+                  </p>
                   <p className="mt-1">{item.audienceSays}</p>
                   <EvidenceRefs ids={item.audienceEvidenceIds} report={report} />
                 </div>
@@ -47,7 +51,7 @@ export function Disconnect({ report }: { report: Report }) {
               </div>
               {item.implication ? (
                 <p className="mt-3 max-w-3xl">
-                  <span className="ui text-[0.9rem] font-semibold">What it means: </span>
+                  <span className="ui text-[0.9rem] font-semibold">Possible implication, not measured: </span>
                   {item.implication}
                 </p>
               ) : null}

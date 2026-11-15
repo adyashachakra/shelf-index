@@ -1,11 +1,13 @@
 // Validation of what a visitor submits. Nothing from the browser is trusted.
 
 import { BRAND_MAX_LENGTH, CUSTOM_CATEGORY_MAX_LENGTH, getCategory } from '../categories';
-import { brandKey } from '../evidence/brand-match';
+import { brandKey, casingLooksDeliberate, titleCaseBrand } from '../evidence/brand-match';
 import type { CategoryId } from '../types';
 
 export interface AuditInput {
+  /** The brand name for display: as typed when its capitalisation looks deliberate, tidied otherwise. */
   brand: string;
+  brandCasing: 'typed' | 'derived';
   categoryId: CategoryId;
   /** Display label, e.g. "Skincare" or the visitor's own category text. */
   categoryLabel: string;
@@ -35,7 +37,10 @@ export function validateAuditInput(body: unknown): InputResult {
   if (typeof body !== 'object' || body === null) return { ok: false, message: 'Enter a brand name and choose a category.' };
   const record = body as Record<string, unknown>;
 
-  const brand = tidy(record.brand);
+  const typed = tidy(record.brand);
+  // "cetaphil" and "CETAPHIL" become "Cetaphil"; "CeraVe" and "H&M" are left exactly as typed.
+  const brandCasing = casingLooksDeliberate(typed) ? ('typed' as const) : ('derived' as const);
+  const brand = brandCasing === 'typed' ? typed : titleCaseBrand(typed.toLowerCase());
   if (brand.length < 2) return { ok: false, message: 'Enter a brand name (at least 2 characters).' };
   if (brand.length > BRAND_MAX_LENGTH) return { ok: false, message: `Brand names can be up to ${BRAND_MAX_LENGTH} characters.` };
   if (/https?:|www\.|\.com\b/i.test(brand)) return { ok: false, message: 'Enter the brand name, not a web address.' };
@@ -52,6 +57,7 @@ export function validateAuditInput(body: unknown): InputResult {
       ok: true,
       value: {
         brand,
+        brandCasing,
         categoryId: category.id,
         categoryLabel: category.label,
         categoryNoun: category.noun,
@@ -73,6 +79,7 @@ export function validateAuditInput(body: unknown): InputResult {
     ok: true,
     value: {
       brand,
+      brandCasing,
       categoryId: 'other',
       categoryLabel: custom,
       categoryNoun: custom.toLowerCase(),

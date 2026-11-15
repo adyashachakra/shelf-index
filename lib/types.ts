@@ -144,11 +144,21 @@ export interface EvidenceLabel {
   sentiment: Sentiment;
 }
 
+/** What a theme is about: one named product, the brand in general, or not clear from the evidence. */
+export type ThemeScope = 'product' | 'brand' | 'unclear';
+
 export interface Theme {
   label: string;
   summary: string;
   evidenceIds: string[];
   quote?: { evidenceId: string; text: string };
+  /** Individual excerpts or comments that show the theme. */
+  itemCount: number;
+  /** Distinct threads, pages or videos those items come from. */
+  sourceCount: number;
+  scope: ThemeScope;
+  /** The product concerned, kept only when its name appears in the cited evidence. */
+  product?: string;
 }
 export interface Concern {
   id: string;
@@ -168,6 +178,14 @@ export interface SentimentCounts {
 
 export type CountedVoice = 'customer' | 'creator' | 'publication' | 'unclear';
 
+/** Counts per kind of audience material: thread excerpts, review pages, videos, individual comments. */
+export interface SampleCounts {
+  discussions: number;
+  reviews: number;
+  videos: number;
+  comments: number;
+}
+
 export interface PerceptionDetail {
   itemsRetrieved: number;
   itemsLabeled: number;
@@ -182,6 +200,8 @@ export interface PerceptionDetail {
   weighted: SentimentCounts & { total: number };
   /** Distinct threads, pages and videos among counted items. */
   uniqueSources: number;
+  /** Distinct threads, pages and videos among every item that is about the brand, counted or not. */
+  sourcesAboutBrand: number;
   uniqueDomains: string[];
   /** Voices present among counted items. */
   sourceTypes: CountedVoice[];
@@ -189,6 +209,8 @@ export interface PerceptionDetail {
   /** Same formula on one voice only; null when that voice has fewer than 5 counted items. */
   voiceScores: { customer: number | null; creator: number | null; publication: number | null };
   sponsoredItems: { evidenceId: string; signals: string[] }[];
+  /** The path from material read to opinions counted, by kind of material. */
+  sample: { read: SampleCounts; aboutBrand: SampleCounts; counted: SampleCounts };
 }
 
 export interface PerceptionSection {
@@ -242,10 +264,25 @@ export interface ChecklistItem {
   geminiNamedBrand?: boolean | null;
 }
 
+export type PriceTier = 'budget' | 'premium';
+
+/** The brand's price position, kept only when a retrieved source says it in words. */
+export interface PricePosition {
+  tier: PriceTier;
+  origin: 'brand_site' | 'independent_source';
+  evidenceId: string;
+  url: string;
+  domain: string;
+  quote: string;
+}
+
 export interface ExcludedQuestion {
   questionId: string;
   question: string;
+  /** product_range: the site shows the brand sells nothing of that kind. price_tier: the question is about a price tier the brand is not in. */
+  kind: 'product_range' | 'price_tier';
   reason: string;
+  sourceUrl?: string;
 }
 
 export interface ContentGapDetail {
@@ -257,6 +294,8 @@ export interface ContentGapDetail {
   productLines: ProductLine[];
   positioning: PositioningStatement[];
   signatureClaim: { claim: string; ref: QuoteRef } | null;
+  /** Null when no retrieved source states the brand's price position in words. */
+  pricePosition: PricePosition | null;
   points: number;
 }
 
@@ -310,6 +349,8 @@ export interface Disagreement {
   implication: string;
   audienceEvidenceIds: string[];
   geminiEvidenceIds: string[];
+  /** Distinct audience sources behind the "people say" side. */
+  audienceSourceCount: number;
 }
 
 export interface DisconnectSection {
@@ -337,6 +378,10 @@ export interface BetweenLinesCheck {
   status: CheckStatus;
   /** "computed" = decided by code from counts and positions; "ai_interpretation" = Gemini's reading of verified evidence. */
   basis: 'computed' | 'ai_interpretation';
+  /** For an observed pattern: "tentative" when it rests on thin evidence and must not be read as established. */
+  strength?: 'established' | 'tentative';
+  /** The wording shown for the status, set where "Observed" would overstate the evidence. */
+  statusLabel?: string;
   observed?: string;
   evidence: InsightEvidence[];
   whyItMatters?: string;
@@ -349,8 +394,11 @@ export interface FixItem {
   why: string;
   priority: number;
   effort: 'Low' | 'Medium' | 'High';
+  /** A hypothesis about what might change. Never a measured or promised outcome. */
   expectedImpact: string;
   evidenceIds: string[];
+  /** How much evidence the recommendation rests on, counted in code. */
+  evidenceBase: string;
 }
 
 // ---------- Methodology ----------
@@ -368,7 +416,12 @@ export interface SearchLogEntry {
 
 export interface Methodology {
   auditedAt: string;
+  /** The model name the Gemini API reported in its responses. */
   model: string;
+  /** The model name this site is configured to request. */
+  modelConfigured: string;
+  /** Why this model is used, built from the site's own configured limits. */
+  modelNote: string;
   questionBankVersion: string;
   tier: Tier;
   questions: { planned: number; answered: number; failed: number; excluded: number; counted: number };
@@ -388,7 +441,7 @@ export type OverallConfidence =
 // ---------- The report ----------
 
 export interface Report {
-  version: 1;
+  version: 2;
   id: string;
   /** True only for the bundled example with a fictional brand. */
   illustrative?: boolean;

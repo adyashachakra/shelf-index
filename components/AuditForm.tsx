@@ -104,7 +104,7 @@ export function AuditForm() {
         >
           {busy ? 'Starting the audit' : 'Run audit'}
         </button>
-        <p className="ui text-[0.9rem] text-ink-soft">A new audit takes about three minutes. A brand audited in the last 7 days opens instantly.</p>
+        <p className="ui text-[0.9rem] text-ink-soft">A new audit usually takes one to three minutes. A brand audited in the last 7 days opens instantly.</p>
       </div>
 
       <div aria-live="polite">

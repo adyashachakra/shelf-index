@@ -6,7 +6,7 @@ export function FixList({ report }: { report: Report }) {
     <Section
       id="fix-list"
       title="Prioritised fix list"
-      intro="Written by an AI model from this audit's findings. A recommendation appears only if it cites evidence that exists in this audit."
+      intro="Written by an AI model from this audit's findings. A recommendation appears only if it cites evidence that exists in this audit. The audit measured no sales, conversion or loyalty, so each expected result is a hypothesis to test, not an outcome. A wording screen removes the overclaims it recognises. It cannot catch every one, so check each recommendation against its evidence."
     >
       {report.fixes.length === 0 ? (
         <p className="text-ink-soft">{report.fixesNote ?? 'No recommendation could be tied to evidence in this audit.'}</p>
@@ -21,13 +21,13 @@ export function FixList({ report }: { report: Report }) {
                 <h3 className="text-[1.15rem] font-semibold">{fix.action}</h3>
                 {fix.why ? (
                   <p className="mt-2">
-                    <span className="font-semibold">Why it matters: </span>
+                    <span className="font-semibold">What the evidence shows: </span>
                     {fix.why}
                   </p>
                 ) : null}
                 {fix.expectedImpact ? (
                   <p className="mt-1">
-                    <span className="font-semibold">Expected impact: </span>
+                    <span className="font-semibold">Hypothesis to test, not a measured result: </span>
                     {fix.expectedImpact}
                   </p>
                 ) : null}
@@ -35,6 +35,10 @@ export function FixList({ report }: { report: Report }) {
                   <span className="font-semibold">Priority {fix.priority}</span>
                   <span className="text-ink-soft"> of 5 (1 is first). </span>
                   <span className="font-semibold">Effort: {fix.effort}.</span>
+                </p>
+                <p className="ui mt-2 text-[0.9rem]">
+                  <span className="font-semibold">Rests on: </span>
+                  {fix.evidenceBase}.
                 </p>
                 <EvidenceRefs ids={fix.evidenceIds} report={report} label="Supporting evidence" />
               </div>

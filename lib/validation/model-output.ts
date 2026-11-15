@@ -87,7 +87,10 @@ const themeSchema = z.object({
   evidence_ids: idList,
   quote_evidence_id: idText,
   quote_text: text(220),
+  scope: z.enum(['one_product', 'brand_overall', 'unclear']).catch('unclear'),
+  product: text(80).catch(''),
 });
+
 export const LabelsSchema = z.object({
   labels: lenientArray(
     z.object({ id: idText.refine((s) => s.length > 0), relevant: flag, voice, sentiment }),
@@ -98,6 +101,12 @@ export const LabelsSchema = z.object({
   concerns: lenientArray(z.object({ label: requiredText(140), evidence_ids: idList }), 4),
   advocacy: lenientArray(z.object({ evidence_id: idText.refine((s) => s.length > 0), note: text(160) }), 4),
   creator_vs_customer: text(320),
+  price_position: z
+    .preprocess(
+      (v) => (typeof v === 'object' && v !== null ? v : {}),
+      z.object({ tier: z.enum(['budget', 'premium', 'unclear']).catch('unclear'), evidence_id: idText, quote: text(260) }),
+    )
+    .catch({ tier: 'unclear', evidence_id: '', quote: '' }),
 });
 export type LabelsOutput = z.output<typeof LabelsSchema>;
 
@@ -121,6 +130,12 @@ export const SiteAnalysisSchema = z.object({
     z.object({ item_id: text(12), level: z.enum(['clear', 'partial', 'none']).catch('none'), ...quoteRef }),
     16,
   ),
+  price_position: z
+    .preprocess(
+      (v) => (typeof v === 'object' && v !== null ? v : {}),
+      z.object({ tier: z.enum(['budget', 'premium', 'unclear']).catch('unclear'), page_id: idText, quote: text(260) }),
+    )
+    .catch({ tier: 'unclear', page_id: '', quote: '' }),
 });
 export type SiteAnalysisOutput = z.output<typeof SiteAnalysisSchema>;
 
@@ -172,6 +187,7 @@ export const SynthesisSchema = z.object({
     }),
     6,
   ),
+  positioning_checks: lenientArray(z.object({ complaint: text(120), statement_id: idText, note: text(320) }), 6),
 });
 export type SynthesisOutput = z.output<typeof SynthesisSchema>;
 

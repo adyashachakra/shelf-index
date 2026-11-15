@@ -9,7 +9,8 @@ finding links to the evidence behind it.
 
 Built by [Adya Chakra](https://www.linkedin.com/in/adyashachakra).
 
-> **Status: V1.** The audit engine is tested (see [What was tested](#what-was-tested)).
+> **Status: V1, live.** The site is deployed and has completed a real audit end to end.
+> See [What was tested](#what-was-tested) for exactly what is proven live and what is only simulated.
 > The whole project runs on free tiers with no credit card on any account.
 
 ---
@@ -22,10 +23,10 @@ Built by [Adya Chakra](https://www.linkedin.com/in/adyashachakra).
 | The disconnect | Where what people say and what Gemini says part ways. |
 | Competitor comparison | The three brands Gemini recommended most across the same questions, with a chart and a table. |
 | What Gemini says | The eight shopper questions, Gemini's actual answers, and its claims about the brand checked against sources. |
-| What people say | Praise themes, complaint themes, advocacy, customer voice vs creator voice, disclosed sponsorship. |
+| What people say | Praise themes, complaint themes (each with the number of sources reporting it and whether it concerns one product or the brand), a table separating what was read, what was about the brand and what was counted, advocacy, customer voice vs creator voice, disclosed sponsorship. |
 | Content gaps | Which shopper questions the brand's own pages answer clearly, partly, or not at all. |
-| Between the lines | Seven patterns a strategist would look for. Each is reported as observed, not observed, or cannot be assessed. |
-| Prioritised fix list | Up to five actions, each with priority, effort, expected impact and supporting evidence. |
+| Between the lines | Seven patterns a strategist would look for. Each is reported as observed, possible on limited evidence, checked and not observed, or could not be assessed. |
+| Prioritised fix list | Up to five actions, each with priority, effort, the evidence it rests on, and a hypothesis to test. No expected result is presented as a measured outcome. |
 | Sources and methodology | Every source used, every search run, what was unavailable, and the limitations. |
 
 The metric is deliberately named **Gemini API recommendation visibility**. It measures one Gemini
@@ -87,9 +88,17 @@ For each counted question the brand earns a credit by where Gemini placed it:
 
 `score = round(100 × total credit ÷ counted questions)`
 
-- A question is **excluded** only when the brand's own site shows it does not sell that kind of
-  product (at least three readable pages, at least one product line confirmed by a quote found
-  on the page) **and** Gemini did not name the brand in that answer. At most three exclusions.
+- A question is **excluded** as outside the brand's range in two cases only, the same in every category:
+  1. **Kind of product.** The brand's own site shows it does not sell that kind of product (at
+     least three readable pages, at least one product line confirmed by a quote found on the page).
+  2. **Price tier.** The question asks about one price tier ("luxury brands", "affordable
+     brands") and a retrieved source says in words that the brand sits in the other one. The
+     words must be found in the source and must be about the brand. Gemini's own opinion of the
+     brand's price level is never used. If no source says it, or two sources disagree, the question counts.
+
+  In both cases Gemini must also not have named the brand in that answer: if it did, the
+  question counts. At most three exclusions per audit. An excluded question is listed in the
+  report with its reason and its source.
 - A question Gemini failed to answer is **missing data**. It is never counted as zero.
 - Fewer than five counted questions: no score.
 - Confidence: high = 8 counted, medium = 6 or 7, low = 5.
@@ -132,9 +141,35 @@ three were scored.
 - Every quote is checked against the text that was actually retrieved. A quote that cannot be
   found is removed.
 - A claim about the brand is marked supported or contradicted only when a quote from a source
-  backs the verdict. Otherwise it stays "unverified".
-- When a pattern cannot be established, the report says "not observed" or "cannot be assessed".
-  It does not invent an explanation.
+  backs the verdict **and that quote is about the brand**: it comes from the brand's own site,
+  from a page whose title names the brand, or from a passage that names the brand. A sentence
+  that could be about any brand leaves the claim "unverified".
+- A complaint or praise theme states how many separate sources report it and whether it is
+  about one named product or the brand in general. A theme is a count of this sample. It is
+  never presented as how common an experience is, or as a safety or quality finding.
+- **Causes and business outcomes are screened, not guaranteed absent.** The audit measures no
+  sales, conversion, loyalty or trust. The model is told not to state causes, generalise from a
+  few reports or promise results. Its sentences about complaints, implications and
+  recommendations then pass through a wording screen: text matching a known overclaiming
+  phrasing is replaced by a plain statement, a recommendation whose action matches is dropped,
+  and a cause is kept only where the sentence attributes it to the customers who said it
+  ("two customers attribute this to..."). **The screen is a list of words and phrases. It is
+  not a detector of every unsupported causal claim**: a cause worded in a way the list does not
+  know will pass, and the attribution test is a word match. Every report says this in its
+  stated limits, and every interpretation sits beside the evidence it rests on so a reader can check it.
+- Every expected result in the fix list is shown as a **hypothesis to test**, with a count of
+  the evidence it rests on.
+- **Between the lines is graded by evidence.** A pattern that depends on customer complaints is
+  called observed only with five or more separate sources; with fewer it reads "possible
+  pattern" or "potential tension, limited evidence". Whether Gemini knows the brand for a single
+  product is counted from **two separate lists that are never merged**: Gemini's list (what the
+  model says the brand sells when asked; its own account, not checked against the site) and
+  the site's range (product lines found on the brand's own pages, each confirmed by a quote; a
+  sample of the site). The report names both lists and shows them side by side. Which sources
+  Gemini relies on **cannot be assessed** by this audit (its answers carry no citations), so
+  that check always says so and shows only what was measured.
+- When a pattern cannot be established, the report says "not observed" or "could not be
+  assessed". It does not invent an explanation.
 - Reports label what is calculated and what is an AI model's interpretation.
 
 ---
@@ -188,7 +223,8 @@ lib/                      The engine (server only; none of this reaches the brow
   audit/questions.ts      The fixed eight questions per category (edit these freely)
   audit/prompts.ts        Every instruction sent to Gemini, with its expected output shape
   scoring/                The three formulas, confidence levels, competitor ranking
-  evidence/               Brand-name matching, quote verification, sponsorship detection
+  evidence/               Brand-name matching, quote verification, sponsorship detection,
+                          price-tier evidence (price.ts), the check on overclaiming wording (overclaim.ts)
   report/                 Turns stored evidence into the final report; the example report
   quota/scripts.ts        The Lua scripts that make limits atomic
   quota/reservations.ts   Reserve, spend, return and sweep search credits
@@ -217,7 +253,7 @@ Set these in Vercel (Project > Settings > Environment Variables). Never put valu
 | `YOUTUBE_API_KEY` | recommended | Without it, audits run without YouTube |
 | `GEMINI_RPM` | recommended | Requests per minute for your model, from your AI Studio rate-limit page |
 | `GEMINI_RPD` | recommended | Requests per day for your model, from the same page |
-| `GEMINI_MODEL` | optional | Default `gemini-3.8-flash` |
+| `GEMINI_MODEL` | optional | Default `gemini-3.5-flash-lite` (see [Which Gemini model, and why](#which-gemini-model-and-why)) |
 | `DAILY_SCAN_LIMIT` | optional | Default 2 |
 | `PER_VISITOR_DAILY_LIMIT` | optional | Default 1 |
 | `TAVILY_MONTHLY_CREDIT_CEILING` | optional | Default 800 |
@@ -228,25 +264,67 @@ Step-by-step deployment for a first-timer is in [DEPLOY.md](./DEPLOY.md).
 
 ---
 
+## Which Gemini model, and why
+
+V1 was planned around `gemini-3.8-flash`. The live site runs `gemini-3.5-flash-lite` instead,
+for one reason: the free allowance.
+
+| Model | Free requests per minute | Free requests per day | Audits per day (about 18 requests each) |
+|---|---|---|---|
+| Gemini 3.8 Flash | 5 | 20 | 1 at most, with nothing to spare for a retry |
+| Gemini 3.5 Flash-Lite | 15 | 500 | far more than the site's own daily cap |
+
+These numbers were read from the AI Studio rate-limit page of the Google project behind this
+site on 14 November 2026. Limits belong to a project and Google changes them, so check your own
+page before deploying a copy. The project has no billing account, and the first real audit
+completed on it, which is the practical proof that the model is served on the free tier.
+
+What this costs: Flash-Lite is a smaller model than 3.8 Flash. The visibility score describes
+**the model named in the report and no other**. Every report shows the model name the API
+itself reported, the name the site asked for, and a one-line note on why.
+
+To use a different model, set `GEMINI_MODEL` together with that model's own `GEMINI_RPM` and
+`GEMINI_RPD`. Nothing else changes.
+
+---
+
 ## What was tested
 
-Honest status as of the V1 hand-off. "Simulated" means canned responses shaped like each API's
-documentation; it proves the engine's logic, not that the live service behaves identically.
+"Simulated" means canned responses shaped like each API's documentation. It proves the engine's
+logic, not that the live service behaves the same way.
+
+### Proven live (14 and 15 November 2026)
+
+- `next build` on Vercel passed on the first deployment.
+- `/api/health` returned `ok: true`: every key present, Redis reachable, the Lua scripts
+  running, and the configured Gemini model available. (It does not call Tavily or YouTube.
+  Those were proven by the audit itself.)
+- One real audit (Cetaphil, skincare) ran start to finish in about a minute: 16 Gemini requests,
+  9 search credits, 14 pages of the brand's site, 4 YouTube videos and 32 comments, no warnings.
+  That exercised the real Gemini structured output, Tavily, the YouTube Data API, Upstash Redis
+  and its Lua scripts.
+
+### Not yet proven live
+
+- The evidence rules added after reviewing that first report (price-tier relevance, quotes that
+  must be about the brand, graded between-the-lines checks, hypothesis wording, the sample
+  table). They pass the simulated tests below. Their first live run is the next audit after
+  they are deployed, and how well the model fills the new fields will only be known then.
+- Failure paths on the live services: rate limits, an exhausted quota, YouTube being down.
+  These are covered by simulation only.
+
+### Automated checks
 
 | Area | How it was checked | Real or simulated |
 |---|---|---|
 | Scoring formulas, confidence levels, insufficient-data states | 17 unit tests | Real code, no services needed |
 | Atomic limits: simultaneous visitors, rollback, credit return, overcharge, stale sweep | 9 tests running the project's Lua scripts | **Real Redis server**, through a local stand-in for Upstash's HTTP layer |
-| A whole audit start to finish, including failures (format rejected, rate limit, missing answer, YouTube down, comments disabled, Tavily quota hit), caching, duplicates, limits, key redaction in logs | 12 tests | Real Redis; Gemini, Tavily and YouTube **simulated** |
+| A whole audit start to finish, including failures (format rejected, rate limit, missing answer, YouTube down, comments disabled, Tavily quota hit), caching, duplicates, limits, key redaction in logs, and model answers that overclaim on purpose | 12 tests | Real Redis; Gemini, Tavily and YouTube **simulated** |
 | The four API routes as HTTP handlers | 6 tests | Real handlers, real Redis, simulated APIs |
+| Evidence rules: price-tier relevance in every category, quotes about the brand, brand capitalisation, graded patterns, wording that overclaims | 12 tests | Real code, no services needed |
 | TypeScript, engine and API routes | Strict compile, zero errors | Real compiler |
-| TypeScript, pages and components | Strict compile with stand-in typings for React, Next.js and Recharts | Partial: the real typings were not available |
-| Every page renders, including the all-"insufficient data" report | Server-rendered to HTML and screenshotted at desktop and phone widths | Stand-ins for Next.js and Recharts |
-| Stylesheet | Compiled with the Tailwind v4 core | Real compiler, without the PostCSS plugin |
-
-**Not tested before the first deployment:** `next build` itself, the Recharts chart on screen,
-web fonts, and every live call to Gemini, Tavily, YouTube and Upstash. The first deployment and
-the first real audit are the real test of those. `/api/health` checks the setup after deploying.
+| TypeScript, pages and components | Strict compile with stand-in typings for React, Next.js and Recharts | Partial locally; the real check is the Vercel build |
+| Every page renders: the example, an all-"insufficient data" report, and a report produced by the engine in the tests | Server-rendered to HTML and screenshotted at desktop and phone widths | Stand-ins for Next.js and Recharts |
 
 To run the tests yourself (optional, needs Node.js and a local Redis server on port 6399):
 `npm install`, then `npm test`.
@@ -263,6 +341,20 @@ To run the tests yourself (optional, needs Node.js and a local Redis server on p
 - YouTube comments are a small sample of top comments on a few videos.
 - The content gap is judged from pages a search surfaced, not a full crawl of the brand's site.
 - Sponsorship is flagged only where disclosed. Undisclosed sponsorship cannot be detected.
+- A complaint theme shows that some customers reported something. It does not show how common
+  that is, and it is not evidence of a safety or quality problem.
+- No sales, conversion, loyalty or trust data is measured. Implications and expected results
+  are hypotheses.
+- A question is left out on price only when a retrieved source states the brand's price tier in
+  words. If no source does, a budget brand is still counted on the "luxury" question, and the
+  report says that no source stated the price position.
+- The audit cannot see which sources Gemini draws on. It can only count where the brand is discussed.
+- The wording screen is a list of words and phrases. It removes the overclaims it recognises and
+  misses those it does not. It is not comprehensive detection of unsupported causal claims,
+  which is why every report states these limits and shows the evidence beside each interpretation.
+- The product-range check compares two lists of different kinds: product types in Gemini's own
+  words, and line names found on a sample of the brand's pages. It can show that Gemini named
+  one product or several. It cannot show that every line on the site is recognised.
 - Competitor sentiment comes from one search per competitor. Competitor content coverage is not measured.
 - The per-visitor limit uses the IP address, so people sharing a network share one allowance.
 - The request speed bump lives in server memory. A determined script could still use up the

@@ -3,8 +3,9 @@ import { readablePages, sourceLabel } from '../audit/evidence-builders';
 import type { JobData, JobMeta } from '../audit/job';
 import { sameBrand } from '../evidence/brand-match';
 import { clip } from '../evidence/normalize';
+import { normalizeForMatch } from '../evidence/quotes';
 import { placementOf, verifiedRecommendations } from '../scoring/visibility';
-import type { EvidenceItem, GeminiAnswer, InsightEvidence, Metric, Placement, SitePage } from '../types';
+import type { EvidenceItem, GeminiAnswer, InsightEvidence, Metric, Placement, PositioningStatement, SitePage } from '../types';
 import type { Core } from './core';
 
 // The evidence index is the single list of things an insight is allowed to cite.
@@ -16,6 +17,30 @@ export interface EvidenceIndex {
   has(id: string): boolean;
   family(id: string): EvidenceFamily | null;
   toInsight(id: string): InsightEvidence | null;
+  /** How many separate threads, pages or videos these audience ids come from. */
+  audienceSources(ids: string[]): number;
+}
+
+function plural(count: number, one: string, many: string): string {
+  return `${count} ${count === 1 ? one : many}`;
+}
+
+/**
+ * How much evidence a statement rests on, counted in code and shown next to it, so a reader can
+ * see when a recommendation stands on two customer comments and when it stands on twenty.
+ */
+export function describeEvidenceBase(ids: string[], index: EvidenceIndex): string {
+  const unique = [...new Set(ids)];
+  const audience = index.audienceSources(unique.filter((id) => index.family(id) === 'audience'));
+  const gemini = unique.filter((id) => index.family(id) === 'gemini').length;
+  const site = unique.filter((id) => index.family(id) === 'site').length;
+  const other = unique.filter((id) => index.family(id) === 'source').length;
+  const parts: string[] = [];
+  if (audience > 0) parts.push(plural(audience, 'customer or reviewer source', 'customer or reviewer sources'));
+  if (gemini > 0) parts.push(plural(gemini, 'Gemini answer', 'Gemini answers'));
+  if (site > 0) parts.push(plural(site, "page of the brand's own site", "pages of the brand's own site"));
+  if (other > 0) parts.push(plural(other, 'other web source', 'other web sources'));
+  return parts.length > 0 ? parts.join(', ') : 'no evidence';
 }
 
 export function describePlacement(placement: Placement): string {
@@ -56,6 +81,14 @@ export function buildEvidenceIndex(data: JobData, core: Core): EvidenceIndex {
   return {
     has: (id) => family(id) !== null,
     family,
+    audienceSources(ids) {
+      const seen = new Set<string>();
+      for (const id of ids) {
+        const item = audience.get(id);
+        if (item) seen.add(item.sourceUrl || item.url);
+      }
+      return seen.size;
+    },
     toInsight(id) {
       const answer = answers.get(id);
       if (answer) return { id, label: `Gemini, asked: "${answer.question}"`, quote: clip(answer.answer ?? '', 220) };
@@ -67,6 +100,28 @@ export function buildEvidenceIndex(data: JobData, core: Core): EvidenceIndex {
       return null;
     },
   };
+}
+
+export interface SiteStatement extends PositioningStatement {
+  /** P1, P2, ... An id for the statement itself, so a comparison can point at the exact words. */
+  id: string;
+}
+
+/**
+ * What the brand says about itself on its own pages: the verified positioning statements and
+ * the signature claim. Each already carries a quote that was found on the page. They get ids
+ * here so that a complaint can be set against one exact statement, not against a whole page.
+ */
+export function siteStatements(core: Core): SiteStatement[] {
+  const out: SiteStatement[] = [];
+  const add = (statement: string, ref: PositioningStatement['ref']) => {
+    if (out.some((existing) => normalizeForMatch(existing.statement) === normalizeForMatch(statement))) return;
+    out.push({ id: `P${out.length + 1}`, statement, ref });
+  };
+  for (const entry of core.contentGap.detail.positioning) add(entry.statement, entry.ref);
+  const claim = core.contentGap.detail.signatureClaim;
+  if (claim) add(claim.claim, claim.ref);
+  return out;
 }
 
 /** A compact, id-tagged summary of everything gathered, for the synthesis prompts. */
@@ -134,8 +189,15 @@ export function buildDigest(meta: JobMeta, data: JobData, core: Core): Record<st
     },
     audience: {
       counted_opinions: core.perception.detail.raw,
-      praise_themes: core.perception.praise.map((t) => ({ label: t.label, summary: t.summary, evidence_ids: t.evidenceIds })),
-      complaint_themes: core.perception.complaints.map((t) => ({ label: t.label, summary: t.summary, evidence_ids: t.evidenceIds })),
+      unique_sources_read: core.perception.detail.uniqueSources,
+      praise_themes: core.perception.praise.map((t) => ({ label: t.label, summary: t.summary, evidence_ids: t.evidenceIds, reported_by_sources: t.sourceCount })),
+      complaint_themes: core.perception.complaints.map((t) => ({
+        label: t.label,
+        summary: t.summary,
+        evidence_ids: t.evidenceIds,
+        reported_by_sources: t.sourceCount,
+        about: t.scope === 'product' ? `one product: ${t.product ?? ''}` : t.scope === 'brand' ? 'the brand in general' : 'not clear',
+      })),
       customer_concerns: core.perception.concerns.map((c) => ({ label: c.label, evidence_ids: c.evidenceIds })),
       evidence: ordered.map((item) => ({
         id: item.id,
@@ -148,12 +210,12 @@ export function buildDigest(meta: JobMeta, data: JobData, core: Core): Record<st
     brand_site: {
       domain: core.contentGap.detail.domain ?? 'not identified',
       product_lines: core.contentGap.detail.productLines.map((l) => ({ name: l.name, page_id: l.ref.pageId })),
-      positioning: core.contentGap.detail.positioning.map((p) => ({ statement: p.statement, page_id: p.ref.pageId })),
+      positioning: siteStatements(core).map((p) => ({ statement_id: p.id, statement: p.statement, page_id: p.ref.pageId })),
       signature_claim: core.contentGap.detail.signatureClaim
         ? { claim: core.contentGap.detail.signatureClaim.claim, page_id: core.contentGap.detail.signatureClaim.ref.pageId }
         : 'none verified',
       checklist: core.contentGap.detail.checklist.map((c) => ({ question_or_concern: c.text, site_coverage: c.level })),
-      questions_outside_product_range: core.contentGap.detail.excluded.map((e) => e.question),
+      questions_outside_brand_range: core.contentGap.detail.excluded.map((e) => e.question),
     },
   };
 }

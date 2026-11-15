@@ -5,7 +5,8 @@
 //   named but not recommended 0.20 · absent or cautioned against 0
 // Score = round(100 × sum of credits ÷ counted questions)
 //
-// Counted = Gemini answered AND the question fits the brand's product range.
+// Counted = Gemini answered AND the question fits the brand's range (the kind of product it
+// sells and the price tier it is in).
 //   - A failed Gemini call is missing data: it is left out of the denominator, never scored as zero.
 //   - A question is excluded for range only when the caller supplies an evidence-backed reason
 //     AND the brand was not named in that answer.
@@ -70,7 +71,7 @@ function confidenceFor(counted: number): ConfidenceLevel {
 export interface VisibilityInput {
   brand: string;
   answers: GeminiAnswer[];
-  /** questionId -> evidence-backed reason the question is outside the brand's product range. */
+  /** questionId -> evidence-backed reason the question is outside the brand's range. */
   outOfRange: Map<string, string>;
 }
 
@@ -132,14 +133,14 @@ export function scoreVisibility(input: VisibilityInput): { metric: Metric; detai
   if (counted < MIN_COUNTED_QUESTIONS) {
     const parts: string[] = [`Only ${counted} of ${planned} questions could be counted (at least ${MIN_COUNTED_QUESTIONS} are needed).`];
     if (failed > 0) parts.push(`${failed} had no Gemini answer, which is missing data rather than a zero.`);
-    if (excluded > 0) parts.push(`${excluded} fall outside this brand's product range.`);
+    if (excluded > 0) parts.push(`${excluded} fall outside this brand's range.`);
     return { metric: { status: 'insufficient', reason: parts.join(' ') }, detail };
   }
 
   const score = Math.round((100 * creditSum) / counted);
   const reasonParts = [`${counted} of ${planned} questions counted, covering ${intents.size} different shopper intents`];
   if (failed > 0) reasonParts.push(`${failed} without a Gemini answer`);
-  if (excluded > 0) reasonParts.push(`${excluded} excluded as outside the product range`);
+  if (excluded > 0) reasonParts.push(`${excluded} excluded as outside the brand's range`);
   return {
     metric: {
       status: 'scored',

@@ -1,9 +1,8 @@
 import 'server-only';
-import { normalizeName } from '../../evidence/brand-match';
+import { domainMatchesBrand, normalizeName, sameBrand } from '../../evidence/brand-match';
 import { clip, SOCIAL_DOMAINS } from '../../evidence/normalize';
-import { quoteAppearsIn } from '../../evidence/quotes';
+import { quoteIsAboutBrand } from '../../evidence/quotes';
 import { placementOf, verifiedRecommendations } from '../../scoring/visibility';
-import { sameBrand } from '../../evidence/brand-match';
 import type { ClaimCheck, EvidenceItem } from '../../types';
 import type { StageContext } from '../context';
 import { readablePages, resultsToEvidence, sourceLabel } from '../evidence-builders';
@@ -24,7 +23,7 @@ function collectClaims(brand: string, data: JobData): ClaimCheck[] {
     if (answer.status !== 'answered' || placementOf(answer, brand).kind !== 'recommended') continue;
     const own = verifiedRecommendations(answer).find((r) => sameBrand(r.brand, brand));
     if (own && own.why.length >= 20) {
-      raw.push({ text: `${brand}: ${own.why}`, type: 'reputation', polarity: 'positive', origin: answer.id });
+      raw.push({ text: own.why, type: 'reputation', polarity: 'positive', origin: answer.id });
     }
   }
   const seen = new Set<string>();
@@ -65,7 +64,7 @@ export async function runClaimCheck(ctx: StageContext): Promise<'done' | 'contin
     const seen = new Set<string>();
     for (const claim of claims.slice(0, searchCount)) {
       const outcome = await ctx.search('Checking a statement Gemini made', 'open web, excluding social platforms', {
-        query: clip(`"${meta.brand}" ${claim.text.replace(`${meta.brand}: `, '')}`, 300),
+        query: clip(`"${meta.brand}" ${claim.text}`, 300),
         maxResults: 5,
         excludeDomains: SOCIAL_DOMAINS,
       });
@@ -88,15 +87,16 @@ export async function runClaimCheck(ctx: StageContext): Promise<'done' | 'contin
     state = data.claims;
   }
 
-  const pool: (PromptEvidence & { url: string })[] = [
-    ...state.sources.map((s) => ({ id: s.id, source: sourceLabel(s), title: clip(s.title, 120), text: clip(s.text, 900), url: s.url })),
+  // ownSite: a page on the brand's own domain is about the brand by definition.
+  const pool: (PromptEvidence & { url: string; ownSite: boolean })[] = [
+    ...state.sources.map((s) => ({ id: s.id, source: sourceLabel(s), title: clip(s.title, 120), text: clip(s.text, 900), url: s.url, ownSite: domainMatchesBrand(s.domain, meta.brand) })),
     ...readablePages(data.site?.pages ?? [])
       .slice(0, 10)
-      .map((p) => ({ id: p.id, source: "The brand's own site", title: clip(p.title, 120), text: clip(p.text, 900), url: p.url })),
+      .map((p) => ({ id: p.id, source: "The brand's own site", title: clip(p.title, 120), text: clip(p.text, 900), url: p.url, ownSite: true })),
     ...(data.audience?.items ?? [])
       .filter((i) => i.kind === 'review')
       .slice(0, 8)
-      .map((i) => ({ id: i.id, source: sourceLabel(i), title: clip(i.title, 120), text: clip(i.text, 600), url: i.url })),
+      .map((i) => ({ id: i.id, source: sourceLabel(i), title: clip(i.title, 120), text: clip(i.text, 600), url: i.url, ownSite: false })),
   ];
 
   if (pool.length === 0) {
@@ -129,8 +129,17 @@ export async function runClaimCheck(ctx: StageContext): Promise<'done' | 'contin
         continue;
       }
       const source = poolById.get(verdict.evidence_id);
-      if (!source || !quoteAppearsIn(verdict.quote, source.text)) {
+      const check = source
+        ? quoteIsAboutBrand({ quote: verdict.quote, title: source.title, text: source.text, brand: meta.brand, ownSite: source.ownSite })
+        : 'not_found';
+      if (!source || check === 'not_found') {
         claim.note = 'A source was cited, but the quoted passage could not be found in it, so this stays unverified.';
+        continue;
+      }
+      // The quote must be about this brand: on the brand's own site, under a title that names
+      // the brand, or in a passage that names it. A sentence that could be about any brand is not support.
+      if (check === 'not_about_brand') {
+        claim.note = 'A source was cited, but the quoted passage does not name the brand, so this stays unverified.';
         continue;
       }
       claim.verdict = verdict.verdict;

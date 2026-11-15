@@ -116,6 +116,7 @@ export async function startAudit(input: AuditInput, visitorIp: string): Promise<
   const meta: JobMeta = {
     id,
     brand: input.brand,
+    brandCasing: input.brandCasing,
     brandKey: brandKey(input.brand),
     categoryId: input.categoryId,
     categoryLabel: input.categoryLabel,

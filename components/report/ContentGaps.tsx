@@ -67,12 +67,27 @@ export function ContentGaps({ report }: { report: Report }) {
 
       {d.excluded.length > 0 ? (
         <div className="mt-6 max-w-3xl">
-          <h3 className="text-lg font-semibold">Questions left out because they are outside the product range</h3>
+          <h3 className="text-lg font-semibold">Questions left out because they are outside the brand&apos;s range</h3>
+          <p className="ui mt-1 text-[0.9rem] text-ink-soft">
+            A question is left out only when a retrieved source shows the brand does not sell that kind of product, or
+            sits in a different price tier, and Gemini did not name the brand when answering it.
+          </p>
           <ul className="mt-2 list-disc space-y-2 pl-5 text-[0.98rem]">
             {d.excluded.map((entry) => (
               <li key={entry.questionId}>
                 {entry.question}
-                <span className="ui block text-[0.9rem] text-ink-soft">{entry.reason}</span>
+                <span className="ui block text-[0.9rem] text-ink-soft">
+                  {entry.kind === 'price_tier' ? 'Different price tier. ' : 'Different kind of product. '}
+                  {entry.reason}
+                  {entry.sourceUrl ? (
+                    <>
+                      {' '}
+                      <SourceLink url={entry.sourceUrl} illustrative={report.illustrative}>
+                        source
+                      </SourceLink>
+                    </>
+                  ) : null}
+                </span>
               </li>
             ))}
           </ul>
@@ -83,6 +98,20 @@ export function ContentGaps({ report }: { report: Report }) {
         <div className="mt-8 grid gap-10 md:grid-cols-2">
           <div>
             <h3 className="text-lg font-semibold">How the brand positions itself</h3>
+            {d.pricePosition ? (
+              <p className="ui mt-2 text-[0.92rem]">
+                <span className="font-semibold">Price position found in a source: </span>
+                {d.pricePosition.tier === 'budget' ? 'lower-priced' : 'premium'}.{' '}
+                <SourceLink url={d.pricePosition.url} illustrative={report.illustrative}>
+                  {d.pricePosition.origin === 'brand_site' ? "the brand's own site" : d.pricePosition.domain}
+                </SourceLink>
+                <span className="italic text-ink-soft"> &ldquo;{d.pricePosition.quote}&rdquo;</span>
+              </p>
+            ) : (
+              <p className="ui mt-2 text-[0.92rem] text-ink-soft">
+                No retrieved source states the brand&apos;s price position in words, so no question was left out on price.
+              </p>
+            )}
             {d.positioning.length === 0 ? (
               <p className="mt-2 text-ink-soft">No positioning statement could be verified on the pages read.</p>
             ) : (
@@ -102,7 +131,11 @@ export function ContentGaps({ report }: { report: Report }) {
             )}
           </div>
           <div>
-            <h3 className="text-lg font-semibold">Product lines found on the site</h3>
+            <h3 className="text-lg font-semibold">Product lines found on the brand&apos;s own site</h3>
+            <p className="ui mt-1 text-[0.88rem] text-ink-soft">
+              Read from the pages this audit retrieved, each confirmed by a quote from a page. A sample of the site, and
+              separate from the products Gemini lists.
+            </p>
             {d.productLines.length === 0 ? (
               <p className="mt-2 text-ink-soft">No product line could be verified on the pages read.</p>
             ) : (

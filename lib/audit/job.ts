@@ -16,6 +16,7 @@ import type {
   JobSnapshot,
   JobStatus,
   PositioningStatement,
+  PricePosition,
   ProductLine,
   QuoteRef,
   SearchLogEntry,
@@ -57,7 +58,10 @@ export const STAGE_ORDER: { id: StageId; label: (brand: string) => string }[] = 
 
 export interface JobMeta {
   id: string;
+  /** The brand name as shown. Capitalised for display when the visitor typed it in lower case. */
   brand: string;
+  /** "typed": keep the visitor's capitalisation. "derived": it was tidied, and may be refined from the sources. */
+  brandCasing?: 'typed' | 'derived';
   brandKey: string;
   categoryId: CategoryId;
   categoryLabel: string;
@@ -105,6 +109,8 @@ export interface LabelsData {
   advocacy: AdvocacyNote[];
   creatorVsCustomer: string;
   droppedThemes: number;
+  /** Price position stated in words by an independent source; null when none says it. */
+  pricePosition: PricePosition | null;
 }
 
 export interface SiteData {
@@ -121,6 +127,8 @@ export interface SiteAnalysisData {
   signatureClaim: { claim: string; ref: QuoteRef } | null;
   relevance: { questionId: string; fit: 'in_range' | 'out_of_range' | 'unclear'; reason: string }[];
   coverage: { itemId: string; level: CoverageLevel; url?: string; quote?: string; downgraded?: boolean }[];
+  /** Price position stated in words on the brand's own pages; null when the pages do not say. */
+  pricePosition: PricePosition | null;
 }
 
 export interface ClaimsData {
@@ -145,6 +153,8 @@ export interface InsightCandidate {
   whyItMatters: string;
   implication: string;
   evidenceIds: string[];
+  /** For a positioning tension: the exact statement from the brand's site that the complaint is set against. */
+  siteStatement?: PositioningStatement;
 }
 
 export interface SynthesisData {

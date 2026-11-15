@@ -37,7 +37,7 @@ export function ScoreCards({ report }: { report: Report }) {
           name="Audience perception"
           metric={report.perception.metric}
           footnote="Higher means more positive sentiment in what people say."
-          reading={`${p.raw.positive} positive, ${p.raw.mixed} mixed and ${p.raw.negative} negative opinions from ${p.uniqueSources} sources.`}
+          reading={`${p.raw.counted} counted opinions: ${p.raw.positive} positive, ${p.raw.mixed} mixed and ${p.raw.negative} negative.`}
         />
         <ScoreTag
           name="Content gap severity"

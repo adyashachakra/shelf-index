@@ -16,7 +16,7 @@ You will need the three keys you already saved: Gemini, Tavily, YouTube.
 
 The app needs a small database to remember limits, progress and saved reports.
 
-1. Go to **https://console.upstash.com** and sign up. "Continue with GitHub" is the quickest.
+1. Go to **https://console.upstash.com** and sign up with Google or with an email address.
    No card is requested. Do not add one later either: on Upstash, adding a card switches the
    database to a paid plan.
 2. Open the **Redis** tab and click **+ Create Database**.
@@ -28,12 +28,23 @@ The app needs a small database to remember limits, progress and saved reports.
 
 ## Step 2. Look up your Gemini limits
 
-1. Open **https://aistudio.google.com/rate-limit** while signed in to the Google account that owns your Gemini key.
-2. Find the row for **Gemini 3.8 Flash** (the model this app uses unless told otherwise).
-3. Note two numbers: requests per minute (**RPM**) and requests per day (**RPD**).
+1. Open **https://aistudio.google.com/rate-limit**.
+2. Check two things at the top of the page before reading any numbers:
+   - **The Google account.** If you are signed in to more than one (work, university,
+     personal), AI Studio opens in the first one, which may have no key at all. Click your
+     picture at the top right and switch to the account that owns your Gemini key.
+   - **The project.** Google may have created more than one (for example "Default Gemini
+     Project" beside the one you named). Pick the project that holds your key. The
+     **API keys** page shows which project each key belongs to.
+3. Find the row for **Gemini 3.5 Flash-Lite** (the model this app uses unless told otherwise).
+4. Note two numbers: requests per minute (**RPM**) and requests per day (**RPD**).
 
-One audit sends about 18 requests to Gemini. **If the RPD is below about 40, stop here and tell
-Claude what the page shows**: a different free model with more daily room can be selected with one setting.
+One audit sends about 18 requests to Gemini, so the daily number decides how many audits are
+possible. Flash-Lite is the default because its free daily allowance is the roomy one: on the
+project behind the original site it was 500 a day, against 20 a day for Gemini 3.8 Flash.
+**If the RPD on your page is below about 40, stop here and tell Claude what the page shows.**
+
+Never click "Set up billing" on these pages. Nothing in this project needs it.
 
 ## Step 3. Put the code on GitHub
 
@@ -43,6 +54,8 @@ Claude what the page shows**: a different free model with more daily room can be
 3. On your computer, open the unzipped `shelf-index` folder. Select everything inside it
    **except the `tests` folder**, and drag the selection onto the GitHub page.
    (GitHub accepts 100 files per upload, which is why `tests` goes separately.)
+   The easiest way to drag: make the folder window and the browser window each fill half
+   the screen, side by side, so you can see both while you drag.
 4. Wait for the list to finish. Check that you see `package.json` and names starting with
    `app/`, `components/` and `lib/`. If every name starts with `shelf-index/`, you dragged the
    outer folder: remove the files and drag its contents instead.
@@ -58,9 +71,10 @@ Doing the first deployment without keys tests one thing at a time: does the code
 
 1. On **vercel.com** click **Add New > Project**.
 2. Under "Import Git Repository" find `shelf-index` and click **Import**. If it is not listed,
-   use the link to adjust GitHub permissions and allow Vercel to see that repository.
+   use the link to adjust GitHub permissions: choose **Only select repositories**, pick
+   `shelf-index`, and click **Install**. That lets Vercel see that one repository.
 3. Vercel should detect **Next.js** by itself. Change nothing. Click **Deploy**.
-4. Wait two or three minutes.
+4. Wait a minute or two.
    - **Success:** you get a web address ending in `.vercel.app`. Open it. You should see the
      landing page. (Running an audit will say the site is not set up yet. Correct: no keys.)
    - **Failure:** click the failed deployment, open **Build Logs**, find the first red lines
@@ -71,9 +85,10 @@ Doing the first deployment without keys tests one thing at a time: does the code
 ## Step 5. Add your keys
 
 1. In your Vercel project open **Settings > Environment Variables**.
-2. Add each row below. Type the name exactly (capitals and underscores). Paste the value with
-   no spaces or quotation marks. For the first five, turn on the **Sensitive** option so the
-   value can never be read back.
+2. Add each row below with **+ Add new variable**. Type the name in **Key** exactly (capitals
+   and underscores). Paste the value in **Value** with no spaces or quotation marks. For the
+   first five choose the type **Secret**, which means the value can never be read back. The
+   numbers further down can stay as **Config**.
 
 | Name | Value |
 |---|---|
@@ -113,7 +128,7 @@ shows a key, so it is safe to copy and send to Claude.
 ## Step 7. Run the first real audit
 
 1. On the landing page enter a well-known brand, pick its category and click **Run audit**.
-2. Watch the eleven steps. Expect three to six minutes. Waiting messages are normal: the app
+2. Watch the eleven steps. Expect one to three minutes. Waiting messages are normal: the app
    paces itself to your free Gemini limits.
 3. This is the first time the code talks to the real services, so a hiccup here would not be
    surprising. If the audit stops, copy the message on the screen. For more detail open
@@ -131,7 +146,7 @@ Things that are meant to happen:
    characters of each key (the first few are the same for everyone's keys). Expect zero results.
 2. **The live site:** on the landing page and on a report, right-click > **View Page Source**,
    then search for `AIza` and `tvly-`. Expect zero results.
-3. **Vercel:** in Settings > Environment Variables the five keys should be marked Sensitive.
+3. **Vercel:** in Settings > Environment Variables the five keys should be of type Secret.
 
 ## Before you share the link publicly
 
@@ -141,6 +156,75 @@ Things that are meant to happen:
 - Optional: Vercel's terms for the free Hobby plan cover personal, non-commercial use, and
   let Vercel use Hobby content to improve its AI features unless you opt out. Look in your
   Vercel account settings for the data preference if you would rather opt out.
+
+## Testing a change safely before it reaches the live site
+
+Use this whenever a change should be tried out without touching the working site. It costs
+nothing: Preview deployments are part of Vercel's free plan.
+
+**How the pieces fit**
+
+- The live site is built from the `main` branch on GitHub. Nothing changes on the live site
+  unless `main` changes.
+- Any other branch gets its own **Preview** deployment at its own address
+  (`shelf-index-git-BRANCH-NAME-YOUR-ACCOUNT.vercel.app`). A Preview is only visible while
+  you are logged in to Vercel, so strangers cannot use it.
+- Settings are per environment. Keys added for **Production** are not available to a
+  Preview. To run audits on a Preview, add the same variables again with the environment
+  **Preview** (Settings > Environment Variables > Add Environment Variable). You type the keys
+  yourself, as before. The Production entries stay exactly as they are.
+- Given the same Upstash values, the Preview and the live site share one database. That is
+  intended: the daily audit limit and the monthly search credits stay shared, so testing can
+  never spend more than the caps allow. Saved reports from different report formats are kept
+  apart, so a test never overwrites a report the live site has saved.
+
+**Steps**
+
+1. **Back up first.** On GitHub open the repository, click the branch button (it says `main`),
+   then **View all branches > New branch**. Name it for what it preserves, for example
+   `backup-v1.0-original`, with source `main`. Write down the commit code shown on the
+   **Commits** page: it identifies this exact version for good.
+2. **Make a working branch** the same way, for example `v1.1-cetaphil-fixes`.
+3. **Upload to the working branch only.** Open
+   `https://github.com/YOUR-NAME/shelf-index/upload/BRANCH-NAME`, drag the files in, and
+   before clicking **Commit changes** read the line above the button. It must say
+   **Commit directly to the `BRANCH-NAME` branch**. If it says `main`, stop and leave the page.
+4. **Open the Preview.** In Vercel > Deployments the new build is labelled **Preview** with
+   your branch name. Open it, check `/api/health`, then test.
+5. **Release only when you are satisfied.** On GitHub open a pull request from the working
+   branch into `main` and merge it. Vercel then rebuilds the live site from `main`.
+
+**Going back to the previous version**
+
+- Fastest: Vercel > Deployments, find the previous **Production** deployment, open its
+  **...** menu and choose **Instant Rollback** (or **Promote**). The live address switches
+  back in seconds. Vercel keeps old deployments for a limited time (this project's retention
+  setting is 30 days), so this route does not last for ever.
+- Always available: the backup branch and the commit code on GitHub. The original code can be
+  rebuilt from them at any time, and the original zip is a third copy.
+
+## Updating the site after the code changes
+
+This is the quick route, straight to the live site. For anything you want to test first, use
+the branch route in the section before this one.
+
+When Claude sends a new zip, the site is updated by replacing the files on GitHub. Vercel
+rebuilds by itself about a minute later.
+
+1. Unzip the new file and open the folder it creates. (Check you are in the new folder and not
+   an older copy: the new one has the newest date.)
+2. On your repository page on GitHub click **Add file > Upload files**.
+3. Select everything inside the folder **except `tests`** and drag it onto the page, exactly
+   as in Step 3. Files with the same name are replaced and new files are added.
+4. Scroll down and click **Commit changes**.
+5. On vercel.com open the project and watch **Deployments**. The newest one should turn
+   **Ready**. If it says **Error**, open it, copy the first red lines of the Build Logs and
+   send them to Claude. The live site keeps running the previous version until a build succeeds.
+6. Your keys and settings stay as they are. Nothing needs re-entering.
+
+A code update can change the format of saved reports. When it does, reports saved before the
+update are no longer shown, and the same brand runs as a fresh audit (which uses one of the
+day's audits).
 
 ## Changing things later
 

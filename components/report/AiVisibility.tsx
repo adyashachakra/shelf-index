@@ -11,7 +11,7 @@ function placementText(placement: Placement | undefined): string {
 
 function rowState(row: VisibilityRow): string {
   if (row.state === 'no_answer') return 'No answer (missing data)';
-  if (row.state === 'excluded') return 'Not counted: outside product range';
+  if (row.state === 'excluded') return "Not counted: outside the brand's range";
   return placementText(row.placement);
 }
 
@@ -33,7 +33,7 @@ export function AiVisibility({ report }: { report: Report }) {
       <p className="ui text-[0.95rem]">
         {detail.counted} of {detail.planned} questions counted.
         {detail.failed > 0 ? ` ${detail.failed} had no answer from Gemini and are treated as missing data, not as zero.` : ''}
-        {detail.excluded > 0 ? ` ${detail.excluded} excluded as outside the brand's product range.` : ''}
+        {detail.excluded > 0 ? ` ${detail.excluded} left out as outside the brand's range, each with the evidence shown.` : ''}
       </p>
 
       <div className="mt-4 overflow-x-auto">
@@ -78,6 +78,12 @@ export function AiVisibility({ report }: { report: Report }) {
               <p className="ui mt-3 text-[0.95rem]">
                 <span className="font-semibold">Known for: </span>
                 {profile.knownFor.join('; ')}
+              </p>
+            ) : null}
+            {profile.products.length > 0 ? (
+              <p className="ui mt-1 text-[0.95rem]">
+                <span className="font-semibold">Products Gemini listed when asked what the brand sells (the model&apos;s own account, not taken from the brand&apos;s site): </span>
+                {profile.products.join('; ')}
               </p>
             ) : null}
             {profile.criticisms.length > 0 ? (

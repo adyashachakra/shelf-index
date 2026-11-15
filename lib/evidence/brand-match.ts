@@ -70,3 +70,59 @@ export function domainMatchesBrand(domain: string, brand: string): boolean {
   const name = host.split('.').slice(0, -1).join('').replace(/[^a-z0-9]/g, '');
   return name.includes(joined);
 }
+
+function escapeForPattern(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/**
+ * "cetaphil" -> "Cetaphil", "la roche-posay" -> "La Roche-Posay", "h&m" -> "H&M",
+ * "l'oreal" -> "L'Oreal" (but "paula's choice" -> "Paula's Choice"). A first tidy-up only:
+ * the finished report uses the spelling the sources use most (see mostCommonCasing).
+ */
+export function titleCaseBrand(input: string): string {
+  return input
+    .replace(/(^|[\s\-&./+])(\p{Ll})/gu, (_match, lead: string, letter: string) => `${lead}${letter.toUpperCase()}`)
+    .replace(/(^|[\s\-])(\p{L})'(\p{Ll})/gu, (_match, lead: string, first: string, letter: string) => `${lead}${first.toUpperCase()}'${letter.toUpperCase()}`);
+}
+
+/**
+ * Is the capitalisation the visitor typed worth keeping as it is? Mixed case ("CeraVe") and
+ * short all-capital names ("H&M", "RoC") are deliberate. All lower case, or a long name in
+ * capitals, is just how it was typed.
+ */
+export function casingLooksDeliberate(typed: string): boolean {
+  const hasLower = /\p{Ll}/u.test(typed);
+  const hasUpper = /\p{Lu}/u.test(typed);
+  if (hasLower && hasUpper) return true;
+  if (hasUpper && !hasLower) return typed.replace(/[^\p{L}]/gu, '').length <= 4;
+  return false;
+}
+
+/**
+ * The way a brand's name is most often written in a set of texts (Gemini's answers, the brand's
+ * own page titles, source titles). Returns null when the texts write it out fewer than twice, so
+ * the caller keeps its own version. Only capitalisation can differ from the name given, and a
+ * brand that writes itself in lower case ("e.l.f.") keeps its lower case.
+ */
+export function mostCommonCasing(name: string, texts: string[]): string | null {
+  const trimmed = name.trim();
+  if (trimmed.length < 2) return null;
+  const pattern = new RegExp(`(?<![\\p{L}\\p{N}])${escapeForPattern(trimmed).replace(/\s+/g, '\\s+')}(?![\\p{L}\\p{N}])`, 'giu');
+  const counts = new Map<string, number>();
+  for (const text of texts) {
+    for (const match of text.matchAll(pattern)) {
+      const variant = match[0].replace(/\s+/g, ' ');
+      counts.set(variant, (counts.get(variant) ?? 0) + 1);
+    }
+  }
+  let best: string | null = null;
+  let bestCount = 1; // needs at least two sightings to count as the usual spelling
+  for (const [variant, count] of counts) {
+    if (count > bestCount) {
+      best = variant;
+      bestCount = count;
+    }
+  }
+  return best;
+}

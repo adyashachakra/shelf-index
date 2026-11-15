@@ -16,12 +16,24 @@ const TIER_TEXT = {
   minimal: 'Minimal: only the essential searches, to protect the monthly budget',
 };
 
-function SourceGroup({ title, items, illustrative }: { title: string; items: EvidenceItem[]; illustrative?: boolean }) {
+function SourceGroup({
+  title,
+  items,
+  read,
+  illustrative,
+}: {
+  title: string;
+  items: EvidenceItem[];
+  /** How many of this kind were read in total, when that differs from the number listed. */
+  read?: number;
+  illustrative?: boolean;
+}) {
   if (items.length === 0) return null;
+  const count = read !== undefined && read !== items.length ? `${items.length} listed of ${read} read` : String(items.length);
   return (
     <div className="mt-5">
       <h4 className="ui text-[0.98rem] font-semibold">
-        {title} ({items.length})
+        {title} ({count})
       </h4>
       <ul className="ui mt-1 space-y-1 text-[0.9rem]">
         {items.map((item) => (
@@ -40,6 +52,13 @@ function SourceGroup({ title, items, illustrative }: { title: string; items: Evi
 
 export function SourcesAndMethod({ report }: { report: Report }) {
   const m = report.methodology;
+  const read = report.perception.detail.sample.read;
+  const readByKind: Partial<Record<EvidenceKind, number>> = {
+    discussion: read.discussions,
+    review: read.reviews,
+    youtube_video: read.videos,
+    youtube_comment: read.comments,
+  };
   return (
     <Section
       id="method"
@@ -53,13 +72,16 @@ export function SourcesAndMethod({ report }: { report: Report }) {
         </div>
         <div>
           <dt className="font-semibold">Gemini model</dt>
-          <dd>{m.model} (Gemini API, no web search)</dd>
+          <dd>
+            {m.model} (Gemini API, no web search)
+            {m.modelConfigured !== m.model ? `. Requested as ${m.modelConfigured}` : ''}
+          </dd>
         </div>
         <div>
           <dt className="font-semibold">Questions</dt>
           <dd>
             {m.questions.planned} asked, {m.questions.answered} answered, {m.questions.failed} without an answer,{' '}
-            {m.questions.excluded} outside the product range, {m.questions.counted} counted
+            {m.questions.excluded} outside the brand&apos;s range, {m.questions.counted} counted
           </dd>
         </div>
         <div>
@@ -71,7 +93,7 @@ export function SourcesAndMethod({ report }: { report: Report }) {
           <dd>
             {m.youtube.status === 'unavailable' || m.youtube.status === 'skipped'
               ? `Not available${m.youtube.note ? `: ${m.youtube.note}` : ''}`
-              : `${m.youtube.videos} videos, ${m.youtube.comments} comments${m.youtube.note ? `. ${m.youtube.note}` : ''}`}
+              : `${m.youtube.videos} videos and ${m.youtube.comments} comments read${m.youtube.note ? `. ${m.youtube.note}` : ''}`}
           </dd>
         </div>
         <div>
@@ -89,6 +111,11 @@ export function SourcesAndMethod({ report }: { report: Report }) {
           </dd>
         </div>
       </dl>
+
+      <p className="ui mt-4 max-w-3xl text-[0.92rem] text-ink-soft">
+        <span className="font-semibold text-ink">Why this model. </span>
+        {m.modelNote} The visibility score describes this model only.
+      </p>
 
       {m.unavailable.length > 0 ? (
         <div className="mt-8 max-w-3xl bg-surface p-4">
@@ -108,24 +135,46 @@ export function SourcesAndMethod({ report }: { report: Report }) {
           For each counted question the brand earns credit for where Gemini placed it: 1.00 for first recommendation,
           0.85 second, 0.70 third, 0.55 fourth, 0.45 fifth, 0.35 lower, 0.20 if named but not recommended, 0 if absent
           or cautioned against. The score is 100 times the total credit divided by the counted questions. A question
-          Gemini failed to answer is missing data and is left out. A question is excluded as irrelevant only when the
-          brand&apos;s own site shows it sells nothing that answers it and Gemini did not name the brand for it. Fewer
-          than 5 counted questions gives no score.
+          Gemini failed to answer is missing data and is left out. A question is left out as outside the brand&apos;s
+          range in two cases only, the same in every category: the brand&apos;s own site shows it sells nothing of that
+          kind, or the question asks about a price tier (luxury, or low-priced) and a retrieved source says in words
+          that the brand sits in the other tier. In both cases Gemini must also not have named the brand for that
+          question. Fewer than 5 counted questions gives no score.
         </p>
         <p>
           <span className="font-semibold">Audience perception. </span>
-          Each excerpt or comment is labeled as relevant or not, by voice and by sentiment. Relevant, non-neutral
-          opinions not written by the brand are counted: customers at full weight, creators, publications and unclear
-          voices at half. The score is 100 times (positive plus half of mixed) divided by all counted opinions, using
-          the weighted counts. Fewer than 8 counted opinions or fewer than 3 distinct sources gives no score.
+          Each excerpt or comment is labeled as about the brand or not, by voice and by sentiment. Those that are about
+          the brand, take a side and were not written by the brand are counted as opinions: customers at full weight,
+          creators, publications and unclear voices at half. The score is 100 times (positive plus half of mixed)
+          divided by all counted opinions, using the weighted counts. Fewer than 8 counted opinions or fewer than 3
+          unique sources gives no score. A theme of praise or complaint is listed when two or more items show it, and
+          the report states how many sources the analysis cited for it. That number is a count of this sample. It is
+          not a measure of how common the experience is among all customers.
         </p>
         <p>
           <span className="font-semibold">Content gap severity. </span>
-          The checklist is the category questions that fit the brand&apos;s range plus recurring customer concerns. Each
+          The checklist is the category questions that fit the brand&apos;s range plus customer concerns raised in the evidence. Each
           is labeled clear, partial or none against the brand&apos;s own pages, and a clear or partial label must quote a
           page that was retrieved. The score is 100 times (none plus half of partial) divided by the checklist size, so
           higher is worse. An unidentified site, fewer than 3 readable pages or fewer than 4 checklist items gives no
           score.
+        </p>
+        <p>
+          <span className="font-semibold">Between the lines. </span>
+          A pattern is called observed only when this audit holds the evidence for it. A pattern that depends on
+          customer complaints needs five or more separate sources reporting the complaint. With fewer it is shown as
+          a possibility on limited evidence. Whether Gemini describes the brand through a single product is counted
+          from two separate lists that are never merged: the products Gemini names when asked what the brand sells
+          (the model&apos;s own account), and the product lines found on the brand&apos;s own pages (each confirmed by
+          a quote from a page, and only a sample of the site). Where the audit has no evidence either way, for example
+          about which sources Gemini relies on, the pattern is marked as not assessable and no explanation is offered.
+        </p>
+        <p>
+          <span className="font-semibold">Wording screen. </span>
+          What the AI model writes about complaints, implications and recommendations is checked against a list of
+          phrasings that state a cause, generalise from a few reports or promise a business result. Matches are
+          replaced by a plain statement, and a cause is kept only where the sentence attributes it to the customers
+          who said it. This is a screen for known phrasings. It is not a detector of every unsupported causal claim.
         </p>
         <p>
           <span className="font-semibold">Confidence </span>
@@ -175,7 +224,13 @@ export function SourcesAndMethod({ report }: { report: Report }) {
       <h3 className="mt-10 text-xl font-semibold">Sources consulted</h3>
       {report.evidence.length === 0 ? <p className="mt-2 text-ink-soft">No external sources were retrieved.</p> : null}
       {KIND_HEADINGS.map(({ kind, title }) => (
-        <SourceGroup key={kind} title={title} items={report.evidence.filter((e) => e.kind === kind)} illustrative={report.illustrative} />
+        <SourceGroup
+          key={kind}
+          title={title}
+          items={report.evidence.filter((e) => e.kind === kind)}
+          read={readByKind[kind]}
+          illustrative={report.illustrative}
+        />
       ))}
     </Section>
   );

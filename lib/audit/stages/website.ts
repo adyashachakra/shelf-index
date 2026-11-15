@@ -1,6 +1,7 @@
 import 'server-only';
 import { domainMatchesBrand, mentionsBrand } from '../../evidence/brand-match';
 import { cleanDomain, isSocialDomain } from '../../evidence/normalize';
+import { verifiedPriceTier } from '../../evidence/price';
 import { quoteAppearsIn } from '../../evidence/quotes';
 import type { CoverageLevel, GeminiAnswer, QuoteRef, SitePage } from '../../types';
 import type { StageContext } from '../context';
@@ -16,6 +17,7 @@ const NO_ANALYSIS: SiteAnalysisData = {
   signatureClaim: null,
   relevance: [],
   coverage: [],
+  pricePosition: null,
 };
 
 function lower(level: CoverageLevel): CoverageLevel {
@@ -136,7 +138,15 @@ export async function runWebsite(ctx: StageContext): Promise<'done' | 'continue'
           signatureClaim: null,
           relevance: [],
           coverage: [],
+          pricePosition: null,
         };
+        const pricePage = pageById.get(out.price_position.page_id);
+        if (pricePage) {
+          const tier = verifiedPriceTier({ tier: out.price_position.tier, quote: out.price_position.quote, title: pricePage.title, text: pricePage.text, brand: meta.brand, ownSite: true });
+          if (tier) {
+            analysis.pricePosition = { tier, origin: 'brand_site', evidenceId: pricePage.id, url: pricePage.url, domain: site.domain ?? '', quote: out.price_position.quote };
+          }
+        }
         for (const line of out.product_lines) {
           const ref = verify(line.page_id, line.quote);
           if (ref && !analysis.productLines.some((l) => l.name.toLowerCase() === line.name.toLowerCase())) {
