@@ -558,6 +558,17 @@ export function buildReport(job: JobMeta, data: JobData): Report {
   const checks = betweenTheLines(meta, data, core, index);
   const synthesis = data.synthesis;
 
+  // A checklist item the site analysis returned no verdict for is still counted as "not
+  // addressed" (the formula is unchanged), so the report says how many there were.
+  const checklistItems = core.contentGap.detail.checklist;
+  const unanswered = checklistItems.filter((item) => item.unanswered).length;
+  const warnings = [...meta.warnings];
+  if (unanswered > 0) {
+    warnings.push(
+      `The analysis of the brand's site returned no verdict for ${unanswered} of the ${checklistItems.length} checklist items. They are counted as not addressed, so content gap severity may be overstated in this audit.`,
+    );
+  }
+
   const fixes = [...(synthesis?.fixes ?? [])].sort((a, b) => a.priority - b.priority).slice(0, 5);
   let fixesNote: string | undefined;
   if (!synthesis || !synthesis.fixesAvailable) fixesNote = 'Recommendations could not be generated for this audit.';
@@ -598,7 +609,7 @@ export function buildReport(job: JobMeta, data: JobData): Report {
   const model = reportedModel(meta, data);
 
   return {
-    version: 2,
+    version: 3,
     id: meta.id,
     brand: meta.brand,
     brandKey: meta.brandKey,
@@ -649,9 +660,9 @@ export function buildReport(job: JobMeta, data: JobData): Report {
         note: youtube?.note,
       },
       sitePages: core.contentGap.detail.pagesRead,
-      unavailable: meta.warnings,
+      unavailable: warnings,
       limitations: LIMITATIONS,
     },
-    warnings: meta.warnings,
+    warnings,
   };
 }

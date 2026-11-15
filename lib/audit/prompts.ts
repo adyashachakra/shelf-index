@@ -43,7 +43,8 @@ const UNTRUSTED =
 /** Shared guard for every step that writes about complaints, implications or recommendations. */
 const NO_OVERCLAIM = [
   'Rules for what you write:',
-  ' - Describe complaints as what individual customers report, and keep to the number of sources that show them. A few reports are not evidence of a brand-wide problem, a safety issue or a product failure. Say "some customers report", never "the product causes".',
+  ' - Describe complaints as what individual customers report. A few reports are not evidence of a brand-wide problem, a safety issue or a product failure. Say "some customers report", never "the product causes".',
+  ' - Never state how many sources, customers or reviews say something. The report counts the cited evidence itself and shows that number beside your text.',
   ' - Do not state a cause as fact. If customers blame an ingredient, a reformulation or a policy, say that they attribute it to that.',
   ' - This audit measured no sales, conversion, loyalty, trust or churn. Never claim an effect on them. Write implications and expected results as possibilities to test, not as outcomes.',
 ].join('\n');
@@ -220,6 +221,10 @@ export interface SitePromptInput {
 }
 
 export function siteAnalysisPrompt(input: SitePromptInput): GenerateOptions<SiteAnalysisOutput> {
+  // Every checklist id is spelled out. In one live audit all the shopper questions came back as
+  // "not addressed", and afterwards it could not be told whether the model had judged them so
+  // or had left them out of its answer.
+  const checklistIds = [...input.questions.map((q) => q.id), ...input.concerns.map((c) => c.id)];
   return {
     label: 'site_analysis',
     system: [
@@ -229,8 +234,9 @@ export function siteAnalysisPrompt(input: SitePromptInput): GenerateOptions<Site
       '1. "product_lines": up to 10 product types or lines these pages show the brand sells, each with the page id and a short quote copied exactly from that page.',
       '2. "positioning": up to 4 statements the brand makes about itself, each with page id and exact quote.',
       '3. "signature_claim": the single shopper benefit or attribute the brand leans on most (at most 8 words, without the brand name), with page id and exact quote. Use empty strings if the pages do not show one.',
-      '4. "question_relevance": one entry for every question id in QUESTIONS. Judge the KIND of product only, not price: "in_range" if the brand sells something a shopper asking that question could buy. "out_of_range" ONLY if the product lines you listed, together with OTHER_KNOWN_PRODUCTS, show the brand sells nothing of that kind. Otherwise "unclear". Give a short reason.',
+      '4. "question_relevance": one entry for every question id in QUESTIONS. Judge the KIND of product only. Price, positioning and prestige are judged elsewhere, so for a question about a price level (luxury, premium, affordable, budget) always answer "unclear". Otherwise: "in_range" if the brand sells something a shopper asking that question could buy. "out_of_range" ONLY if the product lines you listed, together with OTHER_KNOWN_PRODUCTS, show the brand sells nothing of that kind. Otherwise "unclear". Give a short reason.',
       '5. "coverage": one entry for every id in QUESTIONS and in CONCERNS. "clear" if a page directly answers it for this brand, "partial" if a page touches it without a clear answer, "none" if these pages do not address it. For clear and partial give the page id and an exact quote; otherwise use empty strings.',
+      `   The "coverage" list must have exactly ${checklistIds.length} entries, one for each of these ids and no others: ${checklistIds.join(', ')}. Use "none" for an item these pages do not address. Never leave an item out.`,
       '6. "price_position": how these pages describe the brand\'s own price level. "budget" ONLY if a page uses words such as affordable, drugstore, budget or low price for its products. "premium" ONLY if a page uses words such as luxury, high-end, prestige or premium for the brand or its range (not for one ingredient). Give the page id and the exact words. Otherwise "unclear" with empty strings.',
       'Quotes must be copied word for word from the page text. Do not use outside knowledge about the brand.',
     ].join('\n'),
@@ -339,7 +345,7 @@ export function synthesisPrompt(brand: string, categoryLabel: string, digest: Re
       'You are a brand strategist comparing what an AI model says about a brand with what its audience says and what its own website says.',
       UNTRUSTED,
       'Every item you return must cite ids that appear in the digest. Ids starting with G are things the AI model said (GP is its description of the brand). Ids starting with D, R, V or C are audience evidence. Ids starting with S are pages of the brand\'s own site.',
-      '"disagreements": up to 5 places where the audience and the AI model differ about this brand: a disagreement, an opportunity (the audience praises something the model does not credit) or a risk. Each needs at least one audience id AND at least one G id. In "audience_says", say how many of the cited sources report it. "implication" is a possibility to consider, not a prediction.',
+      '"disagreements": up to 5 places where the audience and the AI model differ about this brand: a disagreement, an opportunity (the audience praises something the model does not credit) or a risk. Each needs at least one audience id AND at least one G id. "implication" is a possibility to consider, not a prediction.',
       '"insights": only where the digest supports it:',
       ' - "complaint_as_fact": the AI model states a negative point about the brand as fact, while the evidence shows it only as customer complaints. Cite the G id and the audience ids.',
       NO_OVERCLAIM,
@@ -375,9 +381,9 @@ export function fixesPrompt(brand: string, categoryLabel: string, digest: Record
       UNTRUSTED,
       'Write up to 5 recommendations. Each must follow from a specific finding in the digest and cite at least one id from it. Be specific to this brand: name the question, complaint, claim or page involved. No generic marketing advice.',
       '"priority" is 1 (do first) to 5. "effort" is Low, Medium or High.',
-      '"why" states what the cited evidence shows and how many sources show it. It gives no cause and predicts nothing.',
+      '"why" states what the cited evidence shows, without counting sources. It gives no cause and predicts nothing.',
       '"expected_impact" is a hypothesis, not a result: one sentence beginning "If", naming what could be observed in a later audit (for example a complaint appearing in fewer sources, or the brand being named in an answer). Never mention sales, conversion, trust, loyalty or revenue, and never use numbers.',
-      'A recommendation that rests on a complaint from only a few sources must be modest: suggest checking or clarifying, not fixing a problem the evidence does not establish.',
+      'A recommendation that rests on a complaint with a low "reported_by_sources" number in the digest must be modest: suggest checking or clarifying, not fixing a problem the evidence does not establish.',
       NO_OVERCLAIM,
       'If the digest supports fewer than 5 specific recommendations, return fewer.',
     ].join('\n'),

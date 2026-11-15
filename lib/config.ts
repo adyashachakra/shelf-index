@@ -41,7 +41,7 @@ export const INFLIGHT_TTL_SECONDS = 26 * 60 * 60;
  * Bump this whenever the shape of a saved report changes. Older saved reports are then ignored
  * (they simply expire) instead of being opened by code that no longer understands them.
  */
-export const REPORT_FORMAT_VERSION = 2;
+export const REPORT_FORMAT_VERSION = 3;
 /** Share of the configured per-minute limit the app allows itself to use. */
 export const GEMINI_RPM_HEADROOM = 0.8;
 

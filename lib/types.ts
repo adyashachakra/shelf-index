@@ -260,6 +260,8 @@ export interface ChecklistItem {
   quote?: string;
   /** True when the model's label could not be verified against the page and was lowered one level. */
   downgraded?: boolean;
+  /** True when the analysis returned no verdict for this item. It is still counted as "not addressed". */
+  unanswered?: boolean;
   /** For category questions: did Gemini name the audited brand when answering it? */
   geminiNamedBrand?: boolean | null;
 }
@@ -441,7 +443,7 @@ export type OverallConfidence =
 // ---------- The report ----------
 
 export interface Report {
-  version: 2;
+  version: 3;
   id: string;
   /** True only for the bundled example with a fictional brand. */
   illustrative?: boolean;

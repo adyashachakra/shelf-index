@@ -57,6 +57,9 @@ export function ContentGaps({ report }: { report: Report }) {
                     ) : null}
                     {item.quote ? <span className="block italic text-ink-soft">&ldquo;{item.quote}&rdquo;</span> : null}
                     {item.downgraded ? <span className="block text-ink-soft">Lowered one level: the supporting quote could not be found on the page.</span> : null}
+                    {item.unanswered ? (
+                      <span className="block text-ink-soft">No verdict came back for this item, so it is counted as not addressed.</span>
+                    ) : null}
                   </td>
                 </tr>
               ))}

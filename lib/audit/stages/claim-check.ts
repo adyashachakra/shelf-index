@@ -1,6 +1,7 @@
 import 'server-only';
 import { domainMatchesBrand, normalizeName, sameBrand } from '../../evidence/brand-match';
 import { clip, SOCIAL_DOMAINS } from '../../evidence/normalize';
+import { priceQuoteDecides } from '../../evidence/price';
 import { quoteIsAboutBrand } from '../../evidence/quotes';
 import { placementOf, verifiedRecommendations } from '../../scoring/visibility';
 import type { ClaimCheck, EvidenceItem } from '../../types';
@@ -140,6 +141,12 @@ export async function runClaimCheck(ctx: StageContext): Promise<'done' | 'contin
       // the brand, or in a passage that names it. A sentence that could be about any brand is not support.
       if (check === 'not_about_brand') {
         claim.note = 'A source was cited, but the quoted passage does not name the brand, so this stays unverified.';
+        continue;
+      }
+      // A statement about the brand's price level was waved through on a weak quote in both
+      // live audits. It now needs the price level in the quoted words (see priceQuoteDecides).
+      if (!priceQuoteDecides(claim.text, verdict.verdict, verdict.quote)) {
+        claim.note = "A source was cited, but the quoted words do not state the brand's price level, so this stays unverified.";
         continue;
       }
       claim.verdict = verdict.verdict;

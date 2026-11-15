@@ -96,6 +96,10 @@ For each counted question the brand earns a credit by where Gemini placed it:
      words must be found in the source and must be about the brand. Gemini's own opinion of the
      brand's price level is never used. If no source says it, or two sources disagree, the question counts.
 
+  A question about a price tier is decided by the price rule alone. The model's own opinion
+  that a brand "is not positioned as luxury" excludes nothing, and a kind-of-product verdict
+  whose reason talks about price is ignored.
+
   In both cases Gemini must also not have named the brand in that answer: if it did, the
   question counts. At most three exclusions per audit. An excluded question is listed in the
   report with its reason and its source.
@@ -143,7 +147,15 @@ three were scored.
 - A claim about the brand is marked supported or contradicted only when a quote from a source
   backs the verdict **and that quote is about the brand**: it comes from the brand's own site,
   from a page whose title names the brand, or from a passage that names the brand. A sentence
-  that could be about any brand leaves the claim "unverified".
+  that could be about any brand leaves the claim "unverified". A claim about the brand's price
+  level ("affordable", "luxury") also needs that price level in the quoted words: a comparison
+  such as "slightly cheaper" does not support it.
+- Every count of sources shown in a report is made in code from the evidence cited. The model
+  is told not to count, and any "across N sources" it writes anyway is removed, because in live
+  runs its counts disagreed with the evidence it cited.
+- If the analysis of the brand's site returns no verdict for a checklist item, the item is
+  still counted as "not addressed" (the formula is unchanged), and the report says how many
+  items that happened to, because a missing verdict is not the same as a page that fails to answer.
 - A complaint or praise theme states how many separate sources report it and whether it is
   about one named product or the brand in general. A theme is a count of this sample. It is
   never presented as how common an experience is, or as a safety or quality finding.
@@ -295,22 +307,53 @@ logic, not that the live service behaves the same way.
 
 ### Proven live (14 and 15 November 2026)
 
-- `next build` on Vercel passed on the first deployment.
-- `/api/health` returned `ok: true`: every key present, Redis reachable, the Lua scripts
-  running, and the configured Gemini model available. (It does not call Tavily or YouTube.
-  Those were proven by the audit itself.)
-- One real audit (Cetaphil, skincare) ran start to finish in about a minute: 16 Gemini requests,
-  9 search credits, 14 pages of the brand's site, 4 YouTube videos and 32 comments, no warnings.
-  That exercised the real Gemini structured output, Tavily, the YouTube Data API, Upstash Redis
-  and its Lua scripts.
+- `next build` on Vercel passed on the first deployment of V1.0, and again for V1.1 on a
+  Preview deployment built from a separate branch. The V1.1 build log has three warnings, all
+  npm notices and none from this project's code. The V1.0 build shows the same number.
+- `/api/health` returned `ok: true` on both: every key present, Redis reachable, the Lua
+  scripts running, and the configured Gemini model available. (It does not call Tavily or
+  YouTube. Those were proven by the audits themselves.)
+- V1.0, one real audit (Cetaphil, skincare): start to finish in about a minute, 16 Gemini
+  requests, 9 search credits, 14 pages of the brand's site, 4 YouTube videos and 32 comments,
+  no warnings.
+- V1.1, one real audit of the same brand on the Preview: about 75 seconds, 18 Gemini requests,
+  9 search credits, no warnings. Every Gemini call was accepted in the first structured-output
+  format. Two transient failures from Gemini (one "unavailable", one per-minute rate limit)
+  were retried and recovered without failing the audit: the first live proof of those two paths.
+- That run confirmed, on real output: the brand name's capitalisation, the read / about the
+  brand / counted table, the two-list product-range check, "could not be assessed" for the
+  sources Gemini relies on, the "potential tension, limited evidence" grading, hypotheses in
+  the fix list, and the model line in the methodology.
+
+### What the first live V1.1 run got wrong, and what was changed
+
+- The luxury question was left out, but for the wrong stated reason: the model called it "out
+  of range" because of how the brand is positioned, and the code accepted that under "kind of
+  product". Price-tier questions are now decided by the price rule alone.
+- Two recommendations stated a number of sources that disagreed with the count made in code.
+  The model is no longer asked to count, and its counts are removed.
+- A price claim ("affordable") was marked supported on a comparison ("slightly cheaper"). Price
+  claims now need the price level in the quoted words.
+
+These three corrections pass the simulated tests. Their own live run is the next audit on the Preview.
 
 ### Not yet proven live
 
-- The evidence rules added after reviewing that first report (price-tier relevance, quotes that
-  must be about the brand, graded between-the-lines checks, hypothesis wording, the sample
-  table). They pass the simulated tests below. Their first live run is the next audit after
-  they are deployed, and how well the model fills the new fields will only be known then.
-- Failure paths on the live services: rate limits, an exhausted quota, YouTube being down.
+- The three corrections listed just above.
+- Whether content gap severity is stable from run to run. The two Cetaphil audits, about two
+  hours apart on the same model, gave 55 and 78. The formula, the instruction for this step and
+  the code that fetches the brand's pages were the same in both. The search returned different
+  pages (5 of the 14 were the same), but that does not explain the change: for at least one
+  question, the page and the sentence that earned "partly answered" in the first run were read
+  again in the second, which still came back "not addressed". All seven counted shopper
+  questions came back that way in the second run. A saved report cannot show whether the model
+  judged them so or left them out of its answer (both versions count a missing verdict as "not
+  addressed"), nor whether what V1.1 changed elsewhere in the same request played a part (one
+  task reworded, one added). Three things were changed in response. None touches the formula
+  or adds a request: the instruction now names every checklist item, the report flags any item
+  for which no verdict came back, and the runtime log records how many verdicts were asked for
+  and how many were returned (counts and item ids only).
+- Failure paths other than the two above: an exhausted daily quota, YouTube being down.
   These are covered by simulation only.
 
 ### Automated checks

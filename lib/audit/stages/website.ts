@@ -3,6 +3,7 @@ import { domainMatchesBrand, mentionsBrand } from '../../evidence/brand-match';
 import { cleanDomain, isSocialDomain } from '../../evidence/normalize';
 import { verifiedPriceTier } from '../../evidence/price';
 import { quoteAppearsIn } from '../../evidence/quotes';
+import { logEvent } from '../../log';
 import type { CoverageLevel, GeminiAnswer, QuoteRef, SitePage } from '../../types';
 import type { StageContext } from '../context';
 import { readablePages, resultsToSitePages } from '../evidence-builders';
@@ -169,7 +170,14 @@ export async function runWebsite(ctx: StageContext): Promise<'done' | 'continue'
         const checklistIds = [...questions.map((q) => q.id), ...concerns.map((c) => c.id)];
         for (const itemId of checklistIds) {
           const found = out.coverage.find((c) => c.item_id.toLowerCase() === itemId.toLowerCase());
-          if (!found || found.level === 'none') {
+          if (!found) {
+            // No verdict came back for this item. The score still treats it as "not addressed"
+            // (the formula is unchanged), but the report says so, because a missing verdict is
+            // not the same as a page that fails to answer.
+            analysis.coverage.push({ itemId, level: 'none', unanswered: true });
+            continue;
+          }
+          if (found.level === 'none') {
             analysis.coverage.push({ itemId, level: 'none' });
             continue;
           }
@@ -177,6 +185,13 @@ export async function runWebsite(ctx: StageContext): Promise<'done' | 'continue'
           if (ref) analysis.coverage.push({ itemId, level: found.level, url: ref.url, quote: ref.quote });
           else analysis.coverage.push({ itemId, level: lower(found.level), downgraded: true });
         }
+        // Counts and item ids only (never page text or answers): how many verdicts were asked
+        // for, how many came back, and which items had none.
+        logEvent('site_coverage', {
+          asked: checklistIds.length,
+          returned: out.coverage.length,
+          missing: analysis.coverage.filter((c) => c.unanswered === true).map((c) => c.itemId).join(','),
+        });
         await ctx.save('siteAnalysis', analysis);
       }
     }

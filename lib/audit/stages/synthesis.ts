@@ -1,5 +1,5 @@
 import 'server-only';
-import { asHypothesis, overclaims, withoutOverclaim } from '../../evidence/overclaim';
+import { asHypothesis, overclaims, stripSourceCounts, withoutOverclaim } from '../../evidence/overclaim';
 import { normalizeForMatch } from '../../evidence/quotes';
 import { computeCore } from '../../report/core';
 import { buildDigest, buildEvidenceIndex, describeEvidenceBase, siteStatements } from '../../report/digest';
@@ -43,9 +43,9 @@ export async function runSynthesis(ctx: StageContext): Promise<'done' | 'continu
           title: withoutOverclaim(d.title, 'A point where customers and Gemini differ'),
           kind: d.kind,
           // Wording that states a cause, generalises or promises an outcome is replaced, not shown.
-          audienceSays: withoutOverclaim(d.audience_says, "The summary written for this point claimed more than the evidence shows, so it is not displayed. The customers' own words are in the evidence linked here."),
+          audienceSays: withoutOverclaim(stripSourceCounts(d.audience_says), "The summary written for this point claimed more than the evidence shows, so it is not displayed. The customers' own words are in the evidence linked here."),
           geminiSays: d.gemini_says,
-          implication: withoutOverclaim(d.implication, ''),
+          implication: withoutOverclaim(stripSourceCounts(d.implication), ''),
           audienceEvidenceIds: audience,
           geminiEvidenceIds: gemini,
           audienceSourceCount: sourceCount,
@@ -61,7 +61,7 @@ export async function runSynthesis(ctx: StageContext): Promise<'done' | 'continu
         if (state.insights.some((i) => i.pattern === insight.pattern)) continue;
         state.insights.push({
           pattern: insight.pattern,
-          observed: withoutOverclaim(insight.observed, 'Gemini states as fact something that appears in the evidence only as individual customer complaints. See the evidence below.'),
+          observed: withoutOverclaim(stripSourceCounts(insight.observed), 'Gemini states as fact something that appears in the evidence only as individual customer complaints. See the evidence below.'),
           whyItMatters: withoutOverclaim(insight.why_it_matters, ''),
           implication: withoutOverclaim(insight.strategic_implication, ''),
           evidenceIds: ids,
@@ -80,7 +80,7 @@ export async function runSynthesis(ctx: StageContext): Promise<'done' | 'continu
         if (!theme) continue;
         state.insights.push({
           pattern: 'positioning_contradiction',
-          observed: withoutOverclaim(check.note, "A statement on the brand's site and a customer complaint are about the same thing. See the evidence below."),
+          observed: withoutOverclaim(stripSourceCounts(check.note), "A statement on the brand's site and a customer complaint are about the same thing. See the evidence below."),
           whyItMatters: '',
           implication: '',
           evidenceIds: unique([statement.ref.pageId, ...theme.evidenceIds]),
@@ -119,11 +119,12 @@ export async function runSynthesis(ctx: StageContext): Promise<'done' | 'continu
       state.fixes.push({
         action: fix.action,
         // "Why" may only describe the evidence. A cause or a business outcome is not evidence.
-        why: withoutOverclaim(fix.why, 'The explanation written for this recommendation claimed more than the evidence shows, so it is not displayed. Read the sources listed here before acting on it.'),
+        // The count of sources is shown from the code's own count ("Rests on"), never from the model's.
+        why: withoutOverclaim(stripSourceCounts(fix.why), 'The explanation written for this recommendation claimed more than the evidence shows, so it is not displayed. Read the sources listed here before acting on it.'),
         priority: fix.priority,
         effort: fix.effort,
         // Shown only as a hypothesis, never as a result.
-        expectedImpact: asHypothesis(fix.expected_impact),
+        expectedImpact: asHypothesis(stripSourceCounts(fix.expected_impact)),
         evidenceIds: ids,
         evidenceBase: base,
       });

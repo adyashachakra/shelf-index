@@ -136,15 +136,17 @@ function siteAnalysis(b: Record<string, unknown>): unknown {
     question_relevance: questions.map((q) => ({
       question_id: q.id,
       // q5 is genuinely out of range. q3 is wrongly called out of range: Gemini named the brand there, so it must stay counted.
-      fit: q.id === 'q5' || q.id === 'q3' ? 'out_of_range' : 'in_range',
-      reason: 'The site lists no such products',
+      // q8 (the luxury question) is called out of range for a price reason, as the model did in the first live V1.1 audit:
+      // that verdict must be ignored here, and the question decided by the price rule alone.
+      fit: q.id === 'q5' || q.id === 'q3' || q.id === 'q8' ? 'out_of_range' : 'in_range',
+      reason: q.id === 'q8' ? 'The brand is positioned as a gentle, everyday brand rather than luxury' : 'The site lists no such products',
     })),
     coverage: [
       ...questions.map((q) => {
         if (q.id === 'q1' || q.id === 'q7') return { item_id: q.id, level: 'clear', page_id: page(1).id, quote: quote(1) };
         if (q.id === 'q2') return { item_id: q.id, level: 'partial', page_id: page(0).id, quote: 'a quote that cannot be verified on the page' };
         return { item_id: q.id, level: 'none', page_id: '', quote: '' };
-      }),
+      }).filter((entry) => entry.item_id !== 'q4'), // no verdict at all comes back for q4
       ...concerns.map((c) => ({ item_id: c.id, level: 'partial', page_id: page(2).id, quote: quote(2) })),
     ],
     // The model claims the site calls itself luxury, with a quote that has no price word in it: must be rejected.
@@ -172,7 +174,13 @@ function geminiResponse(system: string, user: string): unknown {
   }
   const b = blocks(user);
   if (system.includes('reading what people say about a brand')) return labelsFor((b.EVIDENCE as Item[]) ?? []);
-  if (system.includes("auditing a brand's own website")) return siteAnalysis(b);
+  if (system.includes("auditing a brand's own website")) {
+    const ids = [...((b.QUESTIONS as { id: string }[]) ?? []), ...((b.CONCERNS as { id: string }[]) ?? [])].map((entry) => entry.id);
+    if (!system.includes(`exactly ${ids.length} entries`) || !system.includes(ids.join(', '))) {
+      throw new Error('The site-analysis instruction must name every checklist id');
+    }
+    return siteAnalysis(b);
+  }
   if (system.includes('fact-checking')) {
     const claims = (b.CLAIMS as { id: string }[]) ?? [];
     const evidence = (b.EVIDENCE as Item[]) ?? [];
@@ -191,7 +199,7 @@ function geminiResponse(system: string, user: string): unknown {
   if (system.includes('brand strategist comparing')) {
     return {
       disagreements: [
-        { title: 'Shipping', kind: 'risk', audience_says: 'Delivery is slow.', gemini_says: 'Recommended without caveats.', implication: 'Ignoring this will erode loyalty and lead to lost sales.', audience_evidence_ids: ['D2'], gemini_evidence_ids: ['G1'] },
+        { title: 'Shipping', kind: 'risk', audience_says: 'Delivery is slow, as reported across 3 sources.', gemini_says: 'Recommended without caveats.', implication: 'Ignoring this will erode loyalty and lead to lost sales.', audience_evidence_ids: ['D2'], gemini_evidence_ids: ['G1'] },
         { title: 'Unsupported point', kind: 'disagreement', audience_says: 'x', gemini_says: 'y', implication: 'z', audience_evidence_ids: ['ZZ9'], gemini_evidence_ids: ['G1'] },
         { title: 'Wrong side', kind: 'disagreement', audience_says: 'x', gemini_says: 'y', implication: 'z', audience_evidence_ids: ['G2'], gemini_evidence_ids: ['D1'] },
       ],
@@ -213,7 +221,7 @@ function geminiResponse(system: string, user: string): unknown {
       fixes: [
         // Overclaims on purpose: a cause, a business outcome and a promised result. None may reach the report.
         { action: 'Publish real delivery times.', why: 'Slow delivery causes churn and damages trust.', priority: 1, effort: 'Low', expected_impact: 'Improves conversion and rebuilds trust.', evidence_ids: ['D2', 'S1'] },
-        { action: 'Explain the wider range.', why: 'Gemini names one product.', priority: 2, effort: 'Medium', expected_impact: "If the range is explained on the site, a later audit could show whether Gemini's description names more of it.", evidence_ids: ['GP'] },
+        { action: 'Explain the wider range.', why: 'Gemini names one product across two sources.', priority: 2, effort: 'Medium', expected_impact: "If the range is explained on the site, a later audit could show whether Gemini's description names more of it.", evidence_ids: ['GP'] },
         { action: 'A fix with no real evidence.', why: 'x', priority: 3, effort: 'High', expected_impact: 'y', evidence_ids: ['Q99'] },
         // Real evidence, but the action itself asserts a cause and a business result: left out whole.
         { action: 'Fix the slow courier that causes lost sales.', why: 'Two sources report slow delivery.', priority: 4, effort: 'High', expected_impact: 'If fixed, a later audit could show fewer reports.', evidence_ids: ['D2'] },

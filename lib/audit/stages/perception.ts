@@ -2,7 +2,7 @@ import 'server-only';
 import { verifiedPriceTier } from '../../evidence/price';
 import { normalizeForMatch, quoteAppearsIn } from '../../evidence/quotes';
 import { clip } from '../../evidence/normalize';
-import { withoutOverclaim } from '../../evidence/overclaim';
+import { stripSourceCounts, withoutOverclaim } from '../../evidence/overclaim';
 import type { AdvocacyNote, Concern, EvidenceLabel, PricePosition, Theme, ThemeScope } from '../../types';
 import type { LabelsOutput } from '../../validation/model-output';
 import type { StageContext } from '../context';
@@ -84,10 +84,11 @@ export async function runPerception(ctx: StageContext): Promise<'done' | 'contin
       const scope: ThemeScope = theme.scope === 'one_product' && productNamed ? 'product' : theme.scope === 'brand_overall' ? 'brand' : 'unclear';
       // A complaint summary that states a cause or generalises beyond these reports is replaced
       // by a plain count. The customers' own words remain available in the linked sources.
+      const stated = stripSourceCounts(theme.summary); // the count shown beside it comes from the code
       const summary =
         kind === 'complaint'
-          ? withoutOverclaim(theme.summary, `${sourceCount} separate source${sourceCount === 1 ? '' : 's'} report this in their own words. See the sources listed here.`)
-          : theme.summary;
+          ? withoutOverclaim(stated, `${sourceCount} separate source${sourceCount === 1 ? '' : 's'} report this in their own words. See the sources listed here.`)
+          : stated;
       // The same check on the short label: a label is a topic, not a verdict.
       const label = kind === 'complaint' ? withoutOverclaim(theme.label, `Reported experience ${themes.length + 1}`) : theme.label;
       themes.push({

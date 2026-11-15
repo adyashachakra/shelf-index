@@ -2,7 +2,7 @@ import 'server-only';
 import { audienceItems, readablePages } from '../audit/evidence-builders';
 import type { JobData, JobMeta } from '../audit/job';
 import { clip } from '../evidence/normalize';
-import { findStatedPricePosition, questionPriceTier, questionTierPhrase, tierPhrase, tiersConflict, tierWordsIn } from '../evidence/price';
+import { findStatedPricePositions, questionPriceTier, questionTierPhrase, tierPhrase, tiersConflict, tierWordsIn } from '../evidence/price';
 import { scoreContentGap, gapPoints, MIN_READABLE_PAGES } from '../scoring/content-gap';
 import { scorePerception } from '../scoring/perception';
 import { scoreVisibility } from '../scoring/visibility';
@@ -76,8 +76,7 @@ export function establishedPricePosition(brand: string, data: JobData): PricePos
     ...audienceItems(data).filter((item) => labelById.get(item.id)?.relevant === true && labelById.get(item.id)?.voice !== 'brand'),
     ...(data.claims?.sources ?? []).filter((item) => siteDomain === '' || item.domain !== siteDomain),
   ];
-  const stated = findStatedPricePosition(titled, brand);
-  if (stated) {
+  for (const stated of findStatedPricePositions(titled, brand)) {
     found.push({
       tier: stated.tier,
       origin: 'independent_source',
@@ -90,7 +89,18 @@ export function establishedPricePosition(brand: string, data: JobData): PricePos
 
   if (found.length === 0) return null;
   if (new Set(found.map((entry) => entry.tier)).size > 1) return null;
-  return found[0];
+  // Several sources may say the same thing. The one shown is the most substantial: the brand's
+  // own site first, then an article or review, then a discussion thread, then a video, and a
+  // single viewer comment last.
+  const weight = (entry: PricePosition): number => {
+    if (entry.origin === 'brand_site') return 0;
+    const kind = entry.evidenceId.charAt(0);
+    if (kind === 'R' || kind === 'K') return 1;
+    if (kind === 'D') return 2;
+    if (kind === 'V') return 3;
+    return 4;
+  };
+  return [...found].sort((a, b) => weight(a) - weight(b))[0];
 }
 
 /**
@@ -119,7 +129,15 @@ export function outOfRangeQuestions(brand: string, data: JobData): Map<string, R
     for (const entry of analysis.relevance) {
       if (out.size >= MAX_RANGE_EXCLUSIONS) break;
       if (entry.fit !== 'out_of_range') continue;
-      if (!questions.some((q) => q.id === entry.questionId)) continue;
+      const question = questions.find((q) => q.id === entry.questionId);
+      if (!question) continue;
+      // A question about a price tier ("luxury", "affordable") is never decided here. The first
+      // live V1.1 audit showed why: the model marked the luxury question "out of range" because
+      // of how the brand is positioned, which is a price judgement with no source behind it.
+      // Such questions are decided only by the price rule below, which needs a source's words.
+      if (questionPriceTier(question) !== null) continue;
+      // For the same reason, a "kind of product" verdict whose stated reason talks about price is not used.
+      if (tierWordsIn(entry.reason) !== null) continue;
       const reason = entry.reason !== '' ? entry.reason.replace(/[.\s]+$/, '') : 'Outside the product range';
       out.set(entry.questionId, { kind: 'product_range', reason: `${reason}. ${site.domain} shows these product lines: ${lines}.` });
     }
@@ -220,6 +238,7 @@ export function computeCore(meta: JobMeta, data: JobData): Core {
         ...(coverage?.url ? { url: coverage.url } : {}),
         ...(coverage?.quote ? { quote: coverage.quote } : {}),
         ...(coverage?.downgraded ? { downgraded: true } : {}),
+        ...(coverage?.unanswered ? { unanswered: true } : {}),
         geminiNamedBrand: named,
       });
     }
@@ -233,6 +252,7 @@ export function computeCore(meta: JobMeta, data: JobData): Core {
         ...(coverage?.url ? { url: coverage.url } : {}),
         ...(coverage?.quote ? { quote: coverage.quote } : {}),
         ...(coverage?.downgraded ? { downgraded: true } : {}),
+        ...(coverage?.unanswered ? { unanswered: true } : {}),
       });
     }
   }

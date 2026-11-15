@@ -94,7 +94,7 @@ test('a full audit runs stage by stage to a finished report', async () => {
   assert.equal(report.model, 'gemini-3.5-flash-lite', 'the model name comes from what the API reported');
   assert.equal(report.methodology.modelConfigured, 'gemini-3.5-flash-lite');
   assert.ok(report.methodology.modelNote.includes('free tier'));
-  assert.equal(report.version, 2);
+  assert.equal(report.version, 3);
 });
 
 test('visibility: failed answers are missing data, range exclusions need evidence', () => {
@@ -156,6 +156,9 @@ test('content gap: relevance check, verified quotes, downgrade when a quote cann
   assert.equal(g.detail.pagesRead, 6, 'a too-short page and a page from another domain are not counted');
   // q5: the site sells nothing of that kind. q8: a luxury question, and an independent source calls the brand a drugstore brand.
   assert.deepEqual(g.detail.excluded.map((e) => [e.questionId, e.kind]), [['q5', 'product_range'], ['q8', 'price_tier']]);
+  // The simulated model also called q8 "out of range" for a positioning reason. That reason must not appear:
+  // the luxury question is left out on the price rule, with the source's words.
+  assert.ok(!g.detail.excluded[1].reason.includes('positioned as'), 'the model\'s own price judgement is not used as the reason');
   const priceExclusion = g.detail.excluded[1];
   assert.ok(priceExclusion.reason.includes('affordable drugstore'), 'the exclusion quotes the words that establish the price tier');
   assert.ok(priceExclusion.reason.includes('beautydesk.example.com') && priceExclusion.sourceUrl?.startsWith('https://beautydesk.example.com'));
@@ -169,6 +172,17 @@ test('content gap: relevance check, verified quotes, downgrade when a quote cann
   assert.equal(byId.get('q3')?.geminiNamedBrand, true);
   assert.equal(byId.has('q8'), false, 'a brand is not marked down for failing to answer a question outside its price tier');
   assert.equal(byId.get('c1')?.source, 'customer_concern');
+  // No verdict came back for q4: counted as "none" as before (formula unchanged), but flagged and reported.
+  assert.deepEqual([byId.get('q4')?.level, byId.get('q4')?.unanswered], ['none', true]);
+  assert.equal(byId.get('q6')?.unanswered, undefined, 'an explicit "none" is not a missing verdict');
+  assert.ok(report.warnings.some((w) => w.includes('returned no verdict for 1 of the 7 checklist items')));
+  // ...and the runtime log says how many verdicts were asked for, how many came back and which were missing.
+  const coverageLine = logged.find((line) => line.includes('"event":"site_coverage"'));
+  assert.ok(coverageLine, 'the site-analysis step logs its verdict counts');
+  assert.deepEqual(
+    (({ asked, returned, missing }) => ({ asked, returned, missing }))(JSON.parse(coverageLine) as { asked: number; returned: number; missing: string }),
+    { asked: 9, returned: 8, missing: 'q4' },
+  );
   // none: q2 q3 q4 q6 = 4; partial: c1 = 0.5; clear: q1 q7 -> 4.5 / 7
   assert.deepEqual(g.metric.status === 'scored' && [g.metric.score, g.metric.confidence], [64, 'medium']);
 });
@@ -232,6 +246,10 @@ test('insights and fixes without traceable evidence are discarded', () => {
   assert.ok(report.fixes[0].why.startsWith('The explanation written for this recommendation claimed more than the evidence shows'), 'a cause or outcome in "why" is not displayed');
   assert.ok(report.fixes[0].expectedImpact.startsWith('If this is done, a later audit could show'), 'a promised result becomes a neutral hypothesis');
   assert.ok(report.fixes[1].expectedImpact.startsWith('If the range is explained'), 'a properly worded hypothesis is kept as written');
+  // The model's own counts of sources are removed: the report shows the count the code made.
+  assert.equal(report.fixes[1].why, 'Gemini names one product.');
+  assert.equal(report.disconnect.disagreements[0].audienceSays, 'Delivery is slow.');
+  assert.equal(report.disconnect.disagreements[0].audienceSourceCount, 1, 'the model said three; the cited evidence comes from one source');
   assert.equal(report.disconnect.disagreements[0].implication, '', 'a predicted business outcome is removed');
   assert.ok(!/churn|trust|conversion|loyalty|sales/i.test(JSON.stringify([report.fixes, report.disconnect.disagreements])));
   assert.ok(report.fixesNote?.includes('Only 2'));

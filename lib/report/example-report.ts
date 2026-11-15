@@ -92,7 +92,7 @@ const EVIDENCE: EvidenceItem[] = [
 ];
 
 export const EXAMPLE_REPORT: Report = {
-  version: 2,
+  version: 3,
   id: 'example',
   illustrative: true,
   brand: BRAND,

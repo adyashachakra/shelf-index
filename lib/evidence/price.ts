@@ -75,17 +75,16 @@ const COMPARISON_OR_DENIAL =
   /\b(than|not|never|no longer|alternatives?|dupes?|versus|vs|compared|comparison|cheaper|pricier|unlike|instead|rather|from|switch\w*|swap\w*|ditch\w*|without|(more|less) (expensive|affordable|premium|luxurious))\b|n['’]t\b/i;
 
 /**
- * A plain statement of the brand's price position, found by reading source TITLES directly:
+ * Plain statements of the brand's price position, found by reading source TITLES directly:
  * a title that names the brand, uses a price-tier word for one tier only, and is not a
  * comparison, a denial or a story about switching. Titles are used because a title says what
  * its page is about; a sentence deep in a page can mention a price word for any reason.
- * Used when the analysis step pointed to no usable passage. If titles exist for both tiers,
- * nothing is returned.
+ * Every matching title is returned. If the titles disagree about the tier, none is.
  */
-export function findStatedPricePosition<T extends { title: string }>(
+export function findStatedPricePositions<T extends { title: string }>(
   items: T[],
   brand: string,
-): { tier: PriceTier; item: T; quote: string } | null {
+): { tier: PriceTier; item: T; quote: string }[] {
   const found: { tier: PriceTier; item: T; quote: string }[] = [];
   for (const item of items) {
     const title = item.title.trim();
@@ -95,7 +94,28 @@ export function findStatedPricePosition<T extends { title: string }>(
     if (tier !== 'budget' && tier !== 'premium') continue;
     found.push({ tier, item, quote: title });
   }
-  if (found.length === 0) return null;
-  if (new Set(found.map((entry) => entry.tier)).size > 1) return null;
-  return found[0];
+  if (new Set(found.map((entry) => entry.tier)).size > 1) return [];
+  return found;
+}
+
+/** The first such statement, or null. */
+export function findStatedPricePosition<T extends { title: string }>(
+  items: T[],
+  brand: string,
+): { tier: PriceTier; item: T; quote: string } | null {
+  return findStatedPricePositions(items, brand)[0] ?? null;
+}
+
+/**
+ * A statement about the brand's price level ("affordable", "luxury") needs the price level in
+ * the quoted words themselves: the same level to support it, the opposite level to contradict
+ * it. A comparison such as "slightly cheaper" states neither. Any statement that is not about
+ * price level passes untouched.
+ */
+export function priceQuoteDecides(claimText: string, verdict: 'supported' | 'contradicted', quote: string): boolean {
+  const claimed = tierWordsIn(claimText);
+  if (claimed !== 'budget' && claimed !== 'premium') return true;
+  const quoted = tierWordsIn(quote);
+  if (verdict === 'supported') return quoted === claimed;
+  return quoted !== null && quoted !== 'both' && quoted !== claimed;
 }

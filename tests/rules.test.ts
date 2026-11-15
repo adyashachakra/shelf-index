@@ -6,8 +6,8 @@ import test from 'node:test';
 import type { JobData, JobMeta } from '../lib/audit/job';
 import { QUESTION_BANK, templateQuestions } from '../lib/audit/questions';
 import { casingLooksDeliberate, mostCommonCasing, titleCaseBrand } from '../lib/evidence/brand-match';
-import { asHypothesis, NEUTRAL_HYPOTHESIS, overclaims, withoutOverclaim } from '../lib/evidence/overclaim';
-import { findStatedPricePosition, questionPriceTier, tierWordsIn, verifiedPriceTier } from '../lib/evidence/price';
+import { asHypothesis, NEUTRAL_HYPOTHESIS, overclaims, stripSourceCounts, withoutOverclaim } from '../lib/evidence/overclaim';
+import { findStatedPricePosition, priceQuoteDecides, questionPriceTier, tierWordsIn, verifiedPriceTier } from '../lib/evidence/price';
 import { passageAround, quoteIsAboutBrand } from '../lib/evidence/quotes';
 import { buildReport } from '../lib/report/build';
 import { computeCore, establishedPricePosition, outOfRangeQuestions } from '../lib/report/core';
@@ -162,6 +162,39 @@ test('a luxury question is left out for a lower-priced brand only with evidence,
   assert.equal(namedCore.visibility.detail.rows.find((r) => r.questionId === 'q8')?.state, 'counted');
   assert.equal(namedCore.visibility.detail.counted, 8);
 
+  // 5. What the first live V1.1 audit did wrong. The site analysis called the luxury question
+  //    "out of range" because of how the brand is positioned. That is a price judgement with no
+  //    source behind it, so on its own it must exclude nothing...
+  const page = (n: number) => ({ id: `S${n}`, url: `https://cetaphil.com/p${n}`, title: `Page ${n}`, text: 'Cetaphil page text. '.repeat(60), section: 'us' });
+  const judgedByModel: JobData = {
+    questions,
+    answers: answers(questions),
+    labels: labels(null),
+    site: { domain: 'cetaphil.com', pages: [page(1), page(2), page(3)], secondSearchDone: true },
+    siteAnalysis: {
+      available: true,
+      productLines: [{ name: 'Cleansers', ref: { pageId: 'S1', url: 'https://cetaphil.com/p1', quote: 'q' } }],
+      positioning: [],
+      signatureClaim: null,
+      relevance: [
+        { questionId: 'q8', fit: 'out_of_range', reason: 'The brand is positioned as a gentle, everyday brand rather than luxury' },
+        { questionId: 'q4', fit: 'out_of_range', reason: 'The range is too affordable for this shopper' },
+        { questionId: 'q5', fit: 'out_of_range', reason: 'The site lists no anti-aging products' },
+      ],
+      coverage: [],
+      pricePosition: null,
+    },
+  };
+  const modelOnly = outOfRangeQuestions(BRAND, judgedByModel);
+  assert.equal(modelOnly.has('q8'), false, 'a price-tier question is never left out on the model\'s say-so');
+  assert.equal(modelOnly.has('q4'), false, 'a "kind of product" verdict whose reason talks about price is not used');
+  assert.equal(modelOnly.get('q5')?.kind, 'product_range', 'a genuine kind-of-product verdict still works');
+  //    ...and with a source that states the price tier, the question is left out for that reason, in those words.
+  const withSource = outOfRangeQuestions(BRAND, { ...judgedByModel, labels: labels(budgetFromReview) });
+  assert.equal(withSource.get('q8')?.kind, 'price_tier');
+  assert.ok(withSource.get('q8')?.reason.includes('I Tested Both Drugstore Skincare Brands'));
+  assert.ok(!withSource.get('q8')?.reason.includes('positioned as'));
+
   // 4. The formula itself is untouched: one second-place answer out of seven counted questions.
   const scored: JobData = { questions, answers: answers(questions, ['q6']), labels: labels(budgetFromReview) };
   const metric = computeCore(meta(), scored).visibility.metric;
@@ -198,6 +231,22 @@ test('a supported statement about price can establish the tier; an unsupported o
   assert.deepEqual([establishedPricePosition(BRAND, supported)?.tier, establishedPricePosition(BRAND, supported)?.domain], ['budget', 'zennora.example']);
   const unverified: JobData = { claims: { phase: 'done', sources: [source], claims: [{ ...claim, verdict: 'unverified' }] } };
   assert.equal(establishedPricePosition(BRAND, unverified), null);
+
+  // A statement about price level needs the price level in the quoted words.
+  // The case from the first live V1.1 audit: "affordable", backed by a comparison.
+  assert.equal(priceQuoteDecides('The brand offers affordable cleansers and moisturizers.', 'supported', 'Slightly cheaper for the same 16 oz sizes'), false);
+  assert.equal(priceQuoteDecides('Products are priced in the budget category.', 'supported', 'Here are some product recommendations in the budget category.'), true);
+  assert.equal(priceQuoteDecides('Cetaphil is an affordable brand.', 'contradicted', 'Cetaphil is sold as a luxury label in some markets'), true);
+  assert.equal(priceQuoteDecides('Cetaphil is an affordable brand.', 'contradicted', 'prices have gone up a lot recently'), false);
+  assert.equal(priceQuoteDecides('The brand is developed by Galderma.', 'supported', 'more than 550 Galderma clinical studies'), true, 'not a price statement: untouched');
+
+  // When several sources state the tier, the one shown is the most substantial, not the first found.
+  const comment: PricePosition = { tier: 'budget', origin: 'independent_source', evidenceId: 'C12', url: 'https://youtube.com/watch?v=x', domain: 'youtube.com', quote: 'products that are affordable and pretty easy to find' };
+  const ranked: JobData = {
+    labels: { ...labels(comment), labels: [{ id: 'R1', relevant: true, voice: 'publication', sentiment: 'positive' }] },
+    audience: { discussionsDone: true, reviewsDone: true, brandDomains: [], items: [{ id: 'R1', kind: 'review', url: 'https://www.cosmopolitan.com/a', domain: 'cosmopolitan.com', title: 'CeraVe or Cetaphil? I Tested Both Drugstore Skincare Brands', text: 'x', sourceUrl: 'https://www.cosmopolitan.com/a' }] },
+  };
+  assert.deepEqual([establishedPricePosition(BRAND, ranked)?.evidenceId, establishedPricePosition(BRAND, ranked)?.domain], ['R1', 'cosmopolitan.com'], 'an article outranks a single viewer comment');
 });
 
 test('with no passage from the analysis, a source title that states the price tier is enough, and Gemini\'s own opinion never is', () => {
@@ -268,6 +317,12 @@ test('the wording screen replaces the overclaiming phrasings it knows, and is no
   const kept = 'If the page is added, a later audit could show the concern as answered on the site.';
   assert.equal(asHypothesis(kept), kept);
   assert.equal(withoutOverclaim('which caused irritation', '2 separate sources report this.'), '2 separate sources report this.');
+
+  // Counts of sources come from the code. The model's own counts are removed (it miscounted live).
+  assert.equal(stripSourceCounts('Customer inquiries show questions about oily skin across two sources.'), 'Customer inquiries show questions about oily skin.');
+  assert.equal(stripSourceCounts('Some customers report reactions and attribute them to niacinamide across three sources.'), 'Some customers report reactions and attribute them to niacinamide.');
+  assert.equal(stripSourceCounts('Recent formula changes led to irritation, as reported across 3 sources.'), 'Recent formula changes led to irritation.');
+  assert.equal(stripSourceCounts('The site sources its oats from Finland.'), 'The site sources its oats from Finland.', 'ordinary uses of the word are left alone');
 
   // Honest about its reach: these are unsupported causal claims in wordings the list does not
   // know, and they pass. The report therefore states that the screen is not comprehensive.

@@ -56,3 +56,22 @@ export function asHypothesis(text: string): string {
 export function withoutOverclaim(text: string, fallback: string): string {
   return overclaims(text) ? fallback : text;
 }
+
+// The model miscounts. In the first live V1.1 audit it wrote "across two sources" beside evidence
+// the code counted as one, and "across three sources" where one of the three was a Gemini answer.
+// Every count of sources shown in a report is therefore made in code, and the model's own
+// "across N sources" phrases are removed from its sentences.
+const NUMBER = '(?:one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|several|multiple|many|\\d+)';
+const SOURCE_COUNT = new RegExp(
+  `,?\\s*(?:as\\s+(?:reported|seen|noted|mentioned)\\s+)?(?:across|in|from|by|over)\\s+(?:at\\s+least\\s+|about\\s+|around\\s+)?${NUMBER}\\s+(?:(?:separate|different|distinct|independent|customer|reviewer|audience|cited)\\s+)*sources?\\b`,
+  'gi',
+);
+
+/** Remove "across N sources" style counts written by the model. The report shows its own count. */
+export function stripSourceCounts(text: string): string {
+  return text
+    .replace(SOURCE_COUNT, '')
+    .replace(/\s+([.,;:])/g, '$1')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+}
