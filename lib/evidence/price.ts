@@ -79,7 +79,7 @@ const COMPARISON_OR_DENIAL =
  * a title that names the brand, uses a price-tier word for one tier only, and is not a
  * comparison, a denial or a story about switching. Titles are used because a title says what
  * its page is about; a sentence deep in a page can mention a price word for any reason.
- * Every matching title is returned. If the titles disagree about the tier, none is.
+ * Every matching title is returned, whatever tier it names; the caller decides what to do when they disagree.
  */
 export function findStatedPricePositions<T extends { title: string }>(
   items: T[],
@@ -94,7 +94,6 @@ export function findStatedPricePositions<T extends { title: string }>(
     if (tier !== 'budget' && tier !== 'premium') continue;
     found.push({ tier, item, quote: title });
   }
-  if (new Set(found.map((entry) => entry.tier)).size > 1) return [];
   return found;
 }
 
@@ -103,7 +102,9 @@ export function findStatedPricePosition<T extends { title: string }>(
   items: T[],
   brand: string,
 ): { tier: PriceTier; item: T; quote: string } | null {
-  return findStatedPricePositions(items, brand)[0] ?? null;
+  const found = findStatedPricePositions(items, brand);
+  if (new Set(found.map((entry) => entry.tier)).size > 1) return null; // titles that disagree establish nothing
+  return found[0] ?? null;
 }
 
 /**
@@ -118,4 +119,49 @@ export function priceQuoteDecides(claimText: string, verdict: 'supported' | 'con
   const quoted = tierWordsIn(quote);
   if (verdict === 'supported') return quoted === claimed;
   return quoted !== null && quoted !== 'both' && quoted !== claimed;
+}
+
+// Hosts where every customer gets their own subdomain, so two subdomains are two different
+// publishers, not one site (two blogspot.com blogs are not one source).
+const SHARED_HOSTS = [
+  'blogspot.com', 'wordpress.com', 'substack.com', 'medium.com', 'tumblr.com', 'github.io', 'netlify.app', 'vercel.app',
+  'pages.dev', 'herokuapp.com', 'wixsite.com', 'weebly.com', 'myshopify.com', 'squarespace.com', 'ghost.io', 'beehiiv.com',
+];
+// Second-level endings under a country code (co.uk, com.au, org.in...). Not a full public-suffix list.
+const SECOND_LEVELS = ['co', 'com', 'org', 'net', 'gov', 'ac', 'edu', 'ne', 'or'];
+
+function hostOf(value: string): string {
+  return value.trim().toLowerCase().replace(/^https?:\/\//, '').replace(/[/?#].*$/, '').replace(/:\d+$/, '').replace(/\.$/, '').replace(/^(www|m|amp)\./, '');
+}
+
+/**
+ * The registrable domain: "shop.brand.com" and "brand.com" both give "brand.com"; "news.bbc.co.uk"
+ * gives "bbc.co.uk"; "someone.blogspot.com" stays "someone.blogspot.com". Plain string rules, no
+ * lookup and no package. It does not know every public suffix: an unusual ending is treated as
+ * a plain ".com"-style one, which can join two sites into one (the safe direction here).
+ */
+export function registrableDomain(domain: string): string {
+  const host = hostOf(domain);
+  const labels = host.split('.').filter((label) => label !== '');
+  if (labels.length <= 2) return labels.join('.');
+  const shared = SHARED_HOSTS.find((suffix) => host === suffix || host.endsWith(`.${suffix}`));
+  if (shared) return labels.slice(-(shared.split('.').length + 1)).join('.');
+  const last = labels[labels.length - 1];
+  const second = labels[labels.length - 2];
+  const twoPart = last.length === 2 && SECOND_LEVELS.includes(second);
+  return labels.slice(twoPart ? -3 : -2).join('.');
+}
+
+/**
+ * The site a source belongs to, for deciding whether two sources are independent. Pages of one
+ * site, and its www., m., amp. and any other subdomain, are ONE source. Anything on the brand's
+ * own registrable domain (brand.com, shop.brand.com, us.brand.com), and on any other domain the
+ * brand is known to own, is the brand's own site: one source in total, whichever of them the
+ * brand's site was recorded as.
+ */
+export function sourceSiteKey(domain: string, brandDomains: string[] = []): string {
+  const key = registrableDomain(domain);
+  if (key === '') return '';
+  const own = brandDomains.map(registrableDomain).filter((d) => d !== '');
+  return own.includes(key) ? own[0] : key; // every domain the brand owns is one source
 }

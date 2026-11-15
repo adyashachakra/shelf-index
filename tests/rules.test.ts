@@ -10,7 +10,7 @@ import { asHypothesis, NEUTRAL_HYPOTHESIS, overclaims, stripSourceCounts, withou
 import { findStatedPricePosition, priceQuoteDecides, questionPriceTier, tierWordsIn, verifiedPriceTier } from '../lib/evidence/price';
 import { passageAround, quoteIsAboutBrand } from '../lib/evidence/quotes';
 import { buildReport } from '../lib/report/build';
-import { computeCore, establishedPricePosition, outOfRangeQuestions } from '../lib/report/core';
+import { computeCore, establishedPricePosition, outOfRangeQuestions, priceSupport } from '../lib/report/core';
 import type { CategoryQuestion, GeminiAnswer, PricePosition } from '../lib/types';
 import { validateAuditInput } from '../lib/validation/input';
 
@@ -72,6 +72,16 @@ const budgetFromReview: PricePosition = {
 
 function labels(pricePosition: PricePosition | null): NonNullable<JobData['labels']> {
   return { available: true, labels: [], praise: [], complaints: [], concerns: [], advocacy: [], creatorVsCustomer: '', droppedThemes: 0, pricePosition };
+}
+
+// Patch 3: a price tier leaves a question out only when two independent domains state it. This is a
+// second source, a different domain from `budgetFromReview`, added to the fixtures that need two.
+const secondReview = { id: 'R7', kind: 'review' as const, url: 'https://beautydesk.example.com/a', domain: 'beautydesk.example.com', title: 'Why Cetaphil is the drugstore skincare brand to buy', text: 'x', sourceUrl: 'https://beautydesk.example.com/a' };
+function withSecondSource(pricePosition: PricePosition | null, brandTitle = secondReview.title): Pick<JobData, 'labels' | 'audience'> {
+  return {
+    labels: { ...labels(pricePosition), labels: [{ id: 'R7', relevant: true, voice: 'publication', sentiment: 'neutral' }] },
+    audience: { discussionsDone: true, reviewsDone: true, brandDomains: [], items: [{ ...secondReview, title: brandTitle }] },
+  };
 }
 
 test('every category with price-tier questions tags them the same way', () => {
@@ -145,7 +155,10 @@ test('a luxury question is left out for a lower-priced brand only with evidence,
   assert.equal(computeCore(meta(), noEvidence).visibility.detail.counted, 8);
 
   // 2. An independent source says "drugstore": the luxury question (q8) is left out, the affordable one (q2) stays.
-  const withEvidence: JobData = { questions, answers: answers(questions), labels: labels(budgetFromReview) };
+  // (With only ONE source the question stays in: see tests/patch3.test.ts.)
+  const oneSource: JobData = { questions, answers: answers(questions), labels: labels(budgetFromReview) };
+  assert.equal(outOfRangeQuestions(BRAND, oneSource).size, 0);
+  const withEvidence: JobData = { questions, answers: answers(questions), ...withSecondSource(budgetFromReview) };
   const excluded = outOfRangeQuestions(BRAND, withEvidence);
   assert.deepEqual([...excluded.keys()], ['q8']);
   assert.equal(excluded.get('q8')?.kind, 'price_tier');
@@ -157,7 +170,7 @@ test('a luxury question is left out for a lower-priced brand only with evidence,
   assert.equal(core.visibility.detail.rows.find((r) => r.questionId === 'q2')?.state, 'counted');
 
   // 3. Same evidence, but Gemini DID name the brand for the luxury question: it counts.
-  const named: JobData = { questions, answers: answers(questions, ['q8']), labels: labels(budgetFromReview) };
+  const named: JobData = { questions, answers: answers(questions, ['q8']), ...withSecondSource(budgetFromReview) };
   const namedCore = computeCore(meta(), named);
   assert.equal(namedCore.visibility.detail.rows.find((r) => r.questionId === 'q8')?.state, 'counted');
   assert.equal(namedCore.visibility.detail.counted, 8);
@@ -190,13 +203,13 @@ test('a luxury question is left out for a lower-priced brand only with evidence,
   assert.equal(modelOnly.has('q4'), false, 'a "kind of product" verdict whose reason talks about price is not used');
   assert.equal(modelOnly.get('q5')?.kind, 'product_range', 'a genuine kind-of-product verdict still works');
   //    ...and with a source that states the price tier, the question is left out for that reason, in those words.
-  const withSource = outOfRangeQuestions(BRAND, { ...judgedByModel, labels: labels(budgetFromReview) });
+  const withSource = outOfRangeQuestions(BRAND, { ...judgedByModel, ...withSecondSource(budgetFromReview) });
   assert.equal(withSource.get('q8')?.kind, 'price_tier');
   assert.ok(withSource.get('q8')?.reason.includes('I Tested Both Drugstore Skincare Brands'));
   assert.ok(!withSource.get('q8')?.reason.includes('positioned as'));
 
   // 4. The formula itself is untouched: one second-place answer out of seven counted questions.
-  const scored: JobData = { questions, answers: answers(questions, ['q6']), labels: labels(budgetFromReview) };
+  const scored: JobData = { questions, answers: answers(questions, ['q6']), ...withSecondSource(budgetFromReview) };
   const metric = computeCore(meta(), scored).visibility.metric;
   assert.equal(metric.status === 'scored' ? metric.score : -1, Math.round((100 * 0.85) / 7));
 });
@@ -204,11 +217,20 @@ test('a luxury question is left out for a lower-priced brand only with evidence,
 test('the same rule in the other direction and in other categories', () => {
   const premiumFromSite: PricePosition = { tier: 'premium', origin: 'brand_site', evidenceId: 'S1', url: 'https://brand.example/about', domain: 'brand.example', quote: 'a luxury cookware house since 1925' };
   const siteAnalysis: JobData['siteAnalysis'] = { available: false, productLines: [], positioning: [], signatureClaim: null, relevance: [], coverage: [], pricePosition: premiumFromSite };
-  const cookware: JobData = { questions: QUESTION_BANK.cookware, answers: answers(QUESTION_BANK.cookware), siteAnalysis };
+  const cuivreReview = { id: 'R1', kind: 'review' as const, url: 'https://cookwarereview.example.com/a', domain: 'cookwarereview.example.com', title: 'Maison Cuivre is a luxury cookware house', text: 'x', sourceUrl: 'https://cookwarereview.example.com/a' };
+  const cookware: JobData = {
+    questions: QUESTION_BANK.cookware,
+    answers: answers(QUESTION_BANK.cookware),
+    siteAnalysis,
+    // The brand's own site plus one other domain: two sources.
+    site: { domain: 'brand.example', pages: [], secondSearchDone: true },
+    audience: { discussionsDone: true, reviewsDone: true, brandDomains: [], items: [cuivreReview] },
+    labels: { ...labels(null), labels: [{ id: 'R1', relevant: true, voice: 'publication', sentiment: 'neutral' }] },
+  };
   assert.deepEqual([...outOfRangeQuestions('Maison Cuivre', cookware).keys()], ['q2'], 'a premium brand is not judged on the "affordable" question');
 
   const custom = templateQuestions('running shoes');
-  const customData: JobData = { questions: custom, answers: answers(custom), labels: labels(budgetFromReview) };
+  const customData: JobData = { questions: custom, answers: answers(custom), ...withSecondSource(budgetFromReview) };
   assert.deepEqual([...outOfRangeQuestions(BRAND, customData).keys()], ['q3'], 'typed-in categories follow the same rule');
 });
 
@@ -228,7 +250,11 @@ test('a supported statement about price can establish the tier; an unsupported o
   const claim = { id: 'k1', text: 'Products are priced in the budget category.', type: 'pricing', polarity: 'neutral' as const, origin: 'GP' };
   const source = { id: 'K1', kind: 'claim_source' as const, url: 'https://zennora.example/chart', domain: 'zennora.example', title: 'Budget chart', text: 'x', sourceUrl: 'https://zennora.example/chart' };
   const supported: JobData = { claims: { phase: 'done', sources: [source], claims: [{ ...claim, verdict: 'supported', evidenceId: 'K1', url: source.url, quote: 'Cetaphil sits firmly in the budget category' }] } };
-  assert.deepEqual([establishedPricePosition(BRAND, supported)?.tier, establishedPricePosition(BRAND, supported)?.domain], ['budget', 'zennora.example']);
+  // One supported source is a statement of the tier, but not yet enough: a second domain is needed.
+  assert.equal(establishedPricePosition(BRAND, supported), null);
+  assert.deepEqual([priceSupport(BRAND, supported).status, priceSupport(BRAND, supported).tier], ['insufficient', 'budget']);
+  const supportedTwice: JobData = { ...supported, ...withSecondSource(null) };
+  assert.deepEqual([establishedPricePosition(BRAND, supportedTwice)?.tier, establishedPricePosition(BRAND, supportedTwice)?.domain], ['budget', 'zennora.example']);
   const unverified: JobData = { claims: { phase: 'done', sources: [source], claims: [{ ...claim, verdict: 'unverified' }] } };
   assert.equal(establishedPricePosition(BRAND, unverified), null);
 
@@ -246,7 +272,12 @@ test('a supported statement about price can establish the tier; an unsupported o
     labels: { ...labels(comment), labels: [{ id: 'R1', relevant: true, voice: 'publication', sentiment: 'positive' }] },
     audience: { discussionsDone: true, reviewsDone: true, brandDomains: [], items: [{ id: 'R1', kind: 'review', url: 'https://www.cosmopolitan.com/a', domain: 'cosmopolitan.com', title: 'CeraVe or Cetaphil? I Tested Both Drugstore Skincare Brands', text: 'x', sourceUrl: 'https://www.cosmopolitan.com/a' }] },
   };
-  assert.deepEqual([establishedPricePosition(BRAND, ranked)?.evidenceId, establishedPricePosition(BRAND, ranked)?.domain], ['R1', 'cosmopolitan.com'], 'an article outranks a single viewer comment');
+  // The viewer comment is not counted at all, so one article is one source: not enough on its own.
+  assert.equal(priceSupport(BRAND, ranked).status, 'insufficient');
+  assert.deepEqual([priceSupport(BRAND, ranked).sources[0]?.evidenceId, priceSupport(BRAND, ranked).sources[0]?.domain], ['R1', 'cosmopolitan.com'], 'an article, not the viewer comment, is the source shown');
+  // Two articles are enough, and the more substantial one is shown first.
+  const rankedTwo: JobData = { ...ranked, audience: { ...ranked.audience!, items: [...ranked.audience!.items, { ...secondReview, id: 'D9', kind: 'discussion' as const, title: 'Cetaphil: an affordable skincare staple' }] }, labels: { ...ranked.labels!, labels: [...ranked.labels!.labels, { id: 'D9', relevant: true, voice: 'customer', sentiment: 'neutral' }] } };
+  assert.deepEqual([establishedPricePosition(BRAND, rankedTwo)?.evidenceId, establishedPricePosition(BRAND, rankedTwo)?.domain], ['R1', 'cosmopolitan.com'], 'an article outranks a discussion thread and a viewer comment');
 });
 
 test('with no passage from the analysis, a source title that states the price tier is enough, and Gemini\'s own opinion never is', () => {
@@ -270,9 +301,20 @@ test('with no passage from the analysis, a source title that states the price ti
     audience: { discussionsDone: true, reviewsDone: true, items: [thread, review], brandDomains: [] },
     labels: { ...labels(null), labels: [{ id: 'D1', relevant: true, voice: 'customer', sentiment: 'positive' }, { id: 'R1', relevant: true, voice: 'publication', sentiment: 'positive' }] },
   };
-  const position = establishedPricePosition(BRAND, withTitle);
+  // One title is one source: stated, but not enough to leave a question out.
+  assert.equal(establishedPricePosition(BRAND, withTitle), null);
+  assert.equal(priceSupport(BRAND, withTitle).sources[0]?.evidenceId, 'R1');
+  assert.equal(outOfRangeQuestions(BRAND, withTitle).size, 0);
+  // A second domain whose title states the same tier establishes it.
+  const second = { id: 'R2', kind: 'review' as const, url: 'https://beautydesk.example.com/a', domain: 'beautydesk.example.com', title: 'Why Cetaphil is the drugstore skincare brand to buy', text: 'x', sourceUrl: 'https://beautydesk.example.com/a' };
+  const withTwoTitles: JobData = {
+    ...withTitle,
+    audience: { discussionsDone: true, reviewsDone: true, items: [thread, review, second], brandDomains: [] },
+    labels: { ...withTitle.labels!, labels: [...withTitle.labels!.labels, { id: 'R2', relevant: true, voice: 'publication', sentiment: 'positive' }] },
+  };
+  const position = establishedPricePosition(BRAND, withTwoTitles);
   assert.deepEqual([position?.tier, position?.origin, position?.evidenceId, position?.domain], ['budget', 'independent_source', 'R1', 'cosmopolitan.com']);
-  assert.deepEqual([...outOfRangeQuestions(BRAND, withTitle).keys()], ['q8'], 'the luxury question is left out, with the title as the stated evidence');
+  assert.deepEqual([...outOfRangeQuestions(BRAND, withTwoTitles).keys()], ['q8'], 'the luxury question is left out, with the titles as the stated evidence');
 
   // The same title on an item the analysis judged not to be about the brand is not used.
   const notRelevant: JobData = { ...withTitle, labels: { ...labels(null), labels: [{ id: 'R1', relevant: false, voice: 'publication', sentiment: 'neutral' }] } };
@@ -281,7 +323,9 @@ test('with no passage from the analysis, a source title that states the price ti
   // A page retrieved to check one of Gemini's statements counts as well, unless it is the brand's own.
   const checked = { id: 'K1', kind: 'claim_source' as const, url: 'https://beautyeditor.example/b', domain: 'beautyeditor.example', title: 'Why Cetaphil is still the best budget cleanser', text: 'x', sourceUrl: 'https://beautyeditor.example/b' };
   const fromClaimSource: JobData = { ...base, claims: { phase: 'done', sources: [checked], claims: [] } };
-  assert.equal(establishedPricePosition(BRAND, fromClaimSource)?.evidenceId, 'K1');
+  assert.equal(priceSupport(BRAND, fromClaimSource).sources[0]?.evidenceId, 'K1');
+  assert.equal(establishedPricePosition(BRAND, fromClaimSource), null, 'one source');
+  assert.equal(establishedPricePosition(BRAND, { ...withTitle, claims: { phase: 'done', sources: [checked], claims: [] } })?.tier, 'budget', 'a review title and a checked page are two sources');
 });
 
 test('the wording screen replaces the overclaiming phrasings it knows, and is not presented as catching all of them', () => {

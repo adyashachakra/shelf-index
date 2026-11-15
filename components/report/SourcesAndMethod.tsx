@@ -63,7 +63,7 @@ export function SourcesAndMethod({ report }: { report: Report }) {
     <Section
       id="method"
       title="Sources and methodology"
-      intro="Scores are estimates based on a sample of public information. Everything below is what this particular audit actually did."
+      intro="Scores are single-audit estimates based on a sample of public information. The same audit run again can give different scores, because the sources retrieved and the AI's interpretation of them can change. Everything below is what this particular audit actually did."
     >
       <dl className="ui grid max-w-3xl grid-cols-1 gap-x-8 gap-y-2 text-[0.95rem] sm:grid-cols-2">
         <div>

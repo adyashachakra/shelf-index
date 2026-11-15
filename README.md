@@ -92,9 +92,13 @@ For each counted question the brand earns a credit by where Gemini placed it:
   1. **Kind of product.** The brand's own site shows it does not sell that kind of product (at
      least three readable pages, at least one product line confirmed by a quote found on the page).
   2. **Price tier.** The question asks about one price tier ("luxury brands", "affordable
-     brands") and a retrieved source says in words that the brand sits in the other one. The
-     words must be found in the source and must be about the brand. Gemini's own opinion of the
-     brand's price level is never used. If no source says it, or two sources disagree, the question counts.
+     brands") and at least **two independent sources** say in words that the brand sits in the
+     other one. The words must be found in the source and must be about the brand. Pages count by
+     website: several pages of one domain are one source, and a subdomain of the brand's own domain
+     is the brand's own site. The brand's own site can be one of the two, but a second, different
+     domain is needed. A YouTube viewer comment never counts. Gemini's own opinion of the brand's
+     price level is never used. With one source the question counts, and the report says the price
+     tier is insufficiently supported. If the sources disagree, or none states it, the question counts.
 
   A question about a price tier is decided by the price rule alone. The model's own opinion
   that a brand "is not positioned as luxury" excludes nothing, and a kind-of-product verdict
@@ -129,6 +133,25 @@ Not addressed = 1 point, partly = 0.5, clearly = 0.
 
 - "Clearly" or "partly" must cite a retrieved page and a quote found on that page. If the quote
   cannot be found, the item is downgraded one level.
+- **The quote must be about what the item asks.** Each verdict is checked for the product or
+  category it concerns. A reader sees one of four classes: *answered clearly* (the same product, or
+  a fact about the whole brand), *touched on* (related but incomplete), *not addressed* (the page
+  is about a different product: a lotion quote does not answer a cleanser question, even from the
+  same brand) and *uncertain* (the link cannot be confirmed). Only direct and brand-wide evidence
+  can earn "clearly". Evidence about another product is "not addressed" (1 point), so it never lowers the
+  gap. An *uncertain* item, and an item for which the analysis returned no verdict at all, is **left out of
+  the content gap score** and the score's confidence is lowered one level, with a warning in the report: a
+  missing or incomplete model answer is not proof that the site fails to address the question. The formula is
+  unchanged; it simply runs on the items that could be assessed (and still needs at least 4 of them). The check uses two things the code can
+  verify (the product the model names appears in the quoted words or the page title, and a short
+  word list of common product types) plus the model's own statement of how the evidence relates to
+  the question. The word list is not comprehensive: for products it does not list, the model's
+  statement decides, and a missing statement makes the item uncertain.
+- **Product range** is reported in three states: *products identified in the pages read* (at least
+  one product line confirmed by a quote from a page), *partially assessed* (product information was
+  found, none could be confirmed) and *could not be assessed*. The report shows the real number of
+  pages read and products identified, and says these are not a verified inventory of the brand's
+  complete range.
 - No score if the site could not be identified, fewer than 3 pages were readable, or the
   checklist has fewer than 4 items.
 - Confidence: high = 8+ pages across 3+ site sections; medium = 5+ pages across 2+ sections; otherwise low.
@@ -339,6 +362,10 @@ These three corrections pass the simulated tests. Their own live run is the next
 
 ### Not yet proven live
 
+- Patch 3 (two-source price rule, the four evidence classes, product-range states, single-audit
+  wording). Tested with simulated services only. The product-relevance check in particular depends
+  on the model filling in three new fields in the existing site-analysis request; if it does not,
+  items are reported as uncertain, left out of the score and the confidence is lowered, with a warning.
 - The three corrections listed just above.
 - Whether content gap severity is stable from run to run. The two Cetaphil audits, about two
   hours apart on the same model, gave 55 and 78. The formula, the instruction for this step and
@@ -365,6 +392,8 @@ These three corrections pass the simulated tests. Their own live run is the next
 | A whole audit start to finish, including failures (format rejected, rate limit, missing answer, YouTube down, comments disabled, Tavily quota hit), caching, duplicates, limits, key redaction in logs, and model answers that overclaim on purpose | 12 tests | Real Redis; Gemini, Tavily and YouTube **simulated** |
 | The four API routes as HTTP handlers | 6 tests | Real handlers, real Redis, simulated APIs |
 | Evidence rules: price-tier relevance in every category, quotes about the brand, brand capitalisation, graded patterns, wording that overclaims | 12 tests | Real code, no services needed |
+| Patch 3: two independent price sources and registrable domains, the four evidence classes (including a different-product quote), items left out of the score, the three product-range states | 19 + 5 tests | Real code, no services needed |
+| Saved reports across the format change (format 3 still opens; formats 2 and 1 are not read; old cached reports are not reused) | 3 tests | Real Redis |
 | TypeScript, engine and API routes | Strict compile, zero errors | Real compiler |
 | TypeScript, pages and components | Strict compile with stand-in typings for React, Next.js and Recharts | Partial locally; the real check is the Vercel build |
 | Every page renders: the example, an all-"insufficient data" report, and a report produced by the engine in the tests | Server-rendered to HTML and screenshotted at desktop and phone widths | Stand-ins for Next.js and Recharts |
@@ -388,9 +417,17 @@ To run the tests yourself (optional, needs Node.js and a local Redis server on p
   that is, and it is not evidence of a safety or quality problem.
 - No sales, conversion, loyalty or trust data is measured. Implications and expected results
   are hypotheses.
-- A question is left out on price only when a retrieved source states the brand's price tier in
-  words. If no source does, a budget brand is still counted on the "luxury" question, and the
-  report says that no source stated the price position.
+- Two sources are independent only if they are on different registrable domains: `brand.com`,
+  `shop.brand.com` and `www.brand.com` are one, and so is any other domain the audit found to belong to
+  the brand. The rule is plain string handling with a short built-in list of common endings such as
+  `co.uk` and of shared hosts such as `blogspot.com`; it is not a full public-suffix list.
+- A question is left out on price only when two independent websites state the brand's price tier
+  in words. With one source, a budget brand is still counted on the "luxury" question and the
+  report says the tier is insufficiently supported. This audit does not retrieve prices or retailer
+  listings, so it cannot confirm a price tier from numbers.
+- Scores are single-audit estimates. Running the same audit again can give different scores,
+  because the sources found and the model's reading of them change. No margin is given: the
+  variation has not been measured well enough to state one.
 - The audit cannot see which sources Gemini draws on. It can only count where the brand is discussed.
 - The wording screen is a list of words and phrases. It removes the overclaims it recognises and
   misses those it does not. It is not comprehensive detection of unsupported causal claims,

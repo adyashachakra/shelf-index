@@ -127,7 +127,16 @@ export const SiteAnalysisSchema = z.object({
     12,
   ),
   coverage: lenientArray(
-    z.object({ item_id: text(12), level: z.enum(['clear', 'partial', 'none']).catch('none'), ...quoteRef }),
+    z.object({
+      item_id: text(12),
+      level: z.enum(['clear', 'partial', 'none']).catch('none'),
+      ...quoteRef,
+      // What the item asks about, what the quote is about, and how the two relate. A missing or
+      // unrecognised relation is read as "unknown": the verdict is then not accepted as it stands.
+      asks_about: text(60),
+      quote_about: text(60),
+      relation: z.enum(['same_product', 'brand_wide', 'related', 'different', 'unknown']).catch('unknown'),
+    }),
     16,
   ),
   price_position: z

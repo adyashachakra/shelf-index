@@ -57,10 +57,23 @@ const empty: Report = {
   methodology: { ...EXAMPLE_REPORT.methodology, unavailable: ['YouTube was not available.'], searches: [] },
 };
 
+// A report saved before version 4 (format 3): none of the fields added in 4. It must still open.
+const { priceSupport: _priceSupport, productRange: _productRange, ...legacyDetail } = EXAMPLE_REPORT.contentGap.detail;
+const legacy: Report = {
+  ...EXAMPLE_REPORT,
+  version: 3,
+  illustrative: false,
+  contentGap: {
+    ...EXAMPLE_REPORT.contentGap,
+    detail: { ...legacyDetail, checklist: EXAMPLE_REPORT.contentGap.detail.checklist.map(({ relevance: _r, evidenceAbout: _e, relevanceNote: _n, ...item }) => item) },
+  },
+};
+
 const checks: [string, string, string[]][] = [
   ['home', page('home', <HomePage />), ['Run audit', 'Brand name', 'Example report', 'Built by Adya Chakra']],
   ['privacy', page('privacy', <PrivacyPage />), ['human reviewers', 'Hobby plan', 'YouTube Terms of Service', 'Google Privacy Policy']],
-  ['example', page('example', <ReportView report={EXAMPLE_REPORT} />), ['Illustrative example', 'Gemini API recommendation visibility', 'Between the lines', 'Prioritised fix list', 'Sources and methodology', 'Insufficient data']],
+  ['example', page('example', <ReportView report={EXAMPLE_REPORT} />), ['Illustrative example', 'Gemini API recommendation visibility', 'Between the lines', 'Prioritised fix list', 'Sources and methodology', 'Insufficient data', 'Single-audit estimate', 'Based on', 'Products identified in the pages read', 'not a verified inventory', 'about the mineral sunscreen', 'does not show that the brand has changed']],
+  ['legacy', page('legacy', <ReportView report={legacy} />), ['Product lines found on the brand', 'Single-audit estimate', 'Touched on', 'Not addressed', 'saved before the latest changes']],
   ['empty', page('empty', <ReportView report={empty} />), ['Insufficient data', 'Could not be assessed', 'Overall confidence: Not stated']],
   ['notfound', page('notfound', <NotFound />), ['not found']],
 ];
@@ -70,7 +83,7 @@ const checks: [string, string, string[]][] = [
 const dumpPath = process.env.SI_PIPELINE_REPORT;
 if (dumpPath && existsSync(dumpPath)) {
   const fromEngine = JSON.parse(readFileSync(dumpPath, 'utf8')) as Report;
-  checks.push(['pipeline', page('pipeline', <ReportView report={fromEngine} />), ['Could not be assessed', 'Hypothesis to test, not a measured result', 'How the sample breaks down', 'Why this model']]);
+  checks.push(['pipeline', page('pipeline', <ReportView report={fromEngine} />), ['Could not be assessed', 'Hypothesis to test, not a measured result', 'How the sample breaks down', 'Why this model', 'Uncertain', 'about sunscreen', 'Products identified in the pages read', 'supported by independent sources']]);
 }
 
 let failed = false;
@@ -82,6 +95,10 @@ for (const [name, html, needles] of checks) {
     }
   }
   console.log(`${name}: ${html.length} chars`);
+}
+if (checks[2][1].includes('saved before the latest changes')) {
+  failed = true;
+  console.error('A current report must not carry the earlier-version notice');
 }
 if (EXAMPLE_REPORT.illustrative && /href="https:\/\/[a-z.-]*example/.test(checks[2][1])) {
   failed = true;

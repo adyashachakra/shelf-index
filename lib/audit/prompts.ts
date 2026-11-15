@@ -203,7 +203,16 @@ const SITE_SCHEMA = obj({
   positioning: list(obj({ statement: str('At most 20 words'), ...QUOTE_FIELDS })),
   signature_claim: obj({ claim: str('At most 8 words, without the brand name. Empty string if none.'), ...QUOTE_FIELDS }),
   question_relevance: list(obj({ question_id: str(), fit: oneOf(['in_range', 'out_of_range', 'unclear']), reason: str('At most 20 words') })),
-  coverage: list(obj({ item_id: str(), level: oneOf(['clear', 'partial', 'none']), ...QUOTE_FIELDS })),
+  coverage: list(
+    obj({
+      item_id: str(),
+      level: oneOf(['clear', 'partial', 'none']),
+      ...QUOTE_FIELDS,
+      asks_about: str('The product or category this item is about, in 1 to 4 words, or "any" if it is not about one product'),
+      quote_about: str('The product or category the quote is about, in 1 to 4 words, or "brand-wide" if it states a fact about the whole brand. Empty string when level is none'),
+      relation: oneOf(['same_product', 'brand_wide', 'related', 'different', 'unknown']),
+    }),
+  ),
   price_position: obj({
     tier: PRICE_TIERS,
     page_id: str('Id of the page that says it; empty string when unclear'),
@@ -236,6 +245,8 @@ export function siteAnalysisPrompt(input: SitePromptInput): GenerateOptions<Site
       '3. "signature_claim": the single shopper benefit or attribute the brand leans on most (at most 8 words, without the brand name), with page id and exact quote. Use empty strings if the pages do not show one.',
       '4. "question_relevance": one entry for every question id in QUESTIONS. Judge the KIND of product only. Price, positioning and prestige are judged elsewhere, so for a question about a price level (luxury, premium, affordable, budget) always answer "unclear". Otherwise: "in_range" if the brand sells something a shopper asking that question could buy. "out_of_range" ONLY if the product lines you listed, together with OTHER_KNOWN_PRODUCTS, show the brand sells nothing of that kind. Otherwise "unclear". Give a short reason.',
       '5. "coverage": one entry for every id in QUESTIONS and in CONCERNS. "clear" if a page directly answers it for this brand, "partial" if a page touches it without a clear answer, "none" if these pages do not address it. For clear and partial give the page id and an exact quote; otherwise use empty strings.',
+      '   Be strict about WHAT the quote is about. A statement about one product (for example a lotion) does not answer a question about another product (for example a cleanser), even from the same brand: for that, answer "none". Only a fact about the whole brand ("every formula is fragrance-free") answers a question about one product.',
+      '   For every entry also fill in: "asks_about" (the product or category the item is about, or "any"), "quote_about" (the product or category the quote is about, or "brand-wide"), and "relation": "same_product" if the quote is about the product the item asks about, "brand_wide" if it states a fact about the whole brand, "related" if it is about a closely related product or point, "different" if it is about a different product, "unknown" if you cannot tell. Use empty strings and "unknown" for items answered "none".',
       `   The "coverage" list must have exactly ${checklistIds.length} entries, one for each of these ids and no others: ${checklistIds.join(', ')}. Use "none" for an item these pages do not address. Never leave an item out.`,
       '6. "price_position": how these pages describe the brand\'s own price level. "budget" ONLY if a page uses words such as affordable, drugstore, budget or low price for its products. "premium" ONLY if a page uses words such as luxury, high-end, prestige or premium for the brand or its range (not for one ingredient). Give the page id and the exact words. Otherwise "unclear" with empty strings.',
       'Quotes must be copied word for word from the page text. Do not use outside knowledge about the brand.',

@@ -1,11 +1,25 @@
-import type { ChecklistItem, CoverageLevel, Report } from '@/lib/types';
+import { evidenceClass } from '@/lib/evidence/relevance';
+import type { ChecklistItem, EvidenceClass, Report } from '@/lib/types';
 import { Section, SourceLink } from './parts';
 
-const LEVEL_TEXT: Record<CoverageLevel, string> = {
+const CLASS_TEXT: Record<EvidenceClass, string> = {
   clear: 'Answered clearly',
-  partial: 'Touched on',
-  none: 'Not addressed',
+  touched_on: 'Touched on',
+  not_addressed: 'Not addressed',
+  uncertain: 'Uncertain',
 };
+
+/** Why the page evidence was or was not accepted, when the relevance check had something to say. */
+function relevanceNote(item: ChecklistItem): string | null {
+  if (item.relevance === 'different_product') {
+    return `A page was found, but it is about ${item.evidenceAbout ?? 'a different product'}, not what this item asks about, so it does not count as an answer.`;
+  }
+  if (item.relevance === 'uncertain') {
+    return `${item.relevanceNote ?? 'The evidence could not be tied to the question.'} It is left out of the score, and the score's confidence is lowered.`;
+  }
+  if (item.relevance === 'indirect') return item.relevanceNote ?? 'The page is about a related product or point, not a direct answer.';
+  return null;
+}
 
 function geminiColumn(item: ChecklistItem): string {
   if (item.source !== 'category_question') return 'n/a';
@@ -46,7 +60,7 @@ export function ContentGaps({ report }: { report: Report }) {
                   </td>
                   <td className="py-2.5 pr-4">{geminiColumn(item)}</td>
                   <td className="py-2.5">
-                    <span className={item.level === 'none' ? 'font-semibold' : ''}>{LEVEL_TEXT[item.level]}</span>
+                    <span className={item.level === 'none' ? 'font-semibold' : ''}>{CLASS_TEXT[evidenceClass(item)]}</span>
                     {item.url ? (
                       <>
                         {': '}
@@ -57,14 +71,19 @@ export function ContentGaps({ report }: { report: Report }) {
                     ) : null}
                     {item.quote ? <span className="block italic text-ink-soft">&ldquo;{item.quote}&rdquo;</span> : null}
                     {item.downgraded ? <span className="block text-ink-soft">Lowered one level: the supporting quote could not be found on the page.</span> : null}
+                    {relevanceNote(item) ? <span className="block text-ink-soft">{relevanceNote(item)}</span> : null}
                     {item.unanswered ? (
-                      <span className="block text-ink-soft">No verdict came back for this item, so it is counted as not addressed.</span>
+                      <span className="block text-ink-soft">No verdict came back for this item. It is left out of the score, and the score's confidence is lowered.</span>
                     ) : null}
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
+          <p className="ui mt-3 max-w-3xl text-[0.88rem] text-ink-soft">
+            A page counts as an answer only when it is about what the item asks: the same product, or a fact about the
+            whole brand. A statement about a different product, even from the same brand, does not.
+          </p>
         </div>
       )}
 
@@ -72,8 +91,9 @@ export function ContentGaps({ report }: { report: Report }) {
         <div className="mt-6 max-w-3xl">
           <h3 className="text-lg font-semibold">Questions left out because they are outside the brand&apos;s range</h3>
           <p className="ui mt-1 text-[0.9rem] text-ink-soft">
-            A question is left out only when a retrieved source shows the brand does not sell that kind of product, or
-            sits in a different price tier, and Gemini did not name the brand when answering it.
+            A question is left out only when the brand&apos;s own pages show it does not sell that kind of product, or when
+            at least two independent websites describe it as sitting in a different price tier, and Gemini did not name
+            the brand when answering it.
           </p>
           <ul className="mt-2 list-disc space-y-2 pl-5 text-[0.98rem]">
             {d.excluded.map((entry) => (
@@ -82,7 +102,16 @@ export function ContentGaps({ report }: { report: Report }) {
                 <span className="ui block text-[0.9rem] text-ink-soft">
                   {entry.kind === 'price_tier' ? 'Different price tier. ' : 'Different kind of product. '}
                   {entry.reason}
-                  {entry.sourceUrl ? (
+                  {entry.sources && entry.sources.length > 0 ? (
+                    entry.sources.map((source) => (
+                      <span key={source.url}>
+                        {' '}
+                        <SourceLink url={source.url} illustrative={report.illustrative}>
+                          {source.domain}
+                        </SourceLink>
+                      </span>
+                    ))
+                  ) : entry.sourceUrl ? (
                     <>
                       {' '}
                       <SourceLink url={entry.sourceUrl} illustrative={report.illustrative}>
@@ -97,24 +126,11 @@ export function ContentGaps({ report }: { report: Report }) {
         </div>
       ) : null}
 
-      {d.positioning.length > 0 || d.productLines.length > 0 ? (
+      {d.positioning.length > 0 || d.productLines.length > 0 || (d.productRange !== undefined && d.domain !== null) ? (
         <div className="mt-8 grid gap-10 md:grid-cols-2">
           <div>
             <h3 className="text-lg font-semibold">How the brand positions itself</h3>
-            {d.pricePosition ? (
-              <p className="ui mt-2 text-[0.92rem]">
-                <span className="font-semibold">Price position found in a source: </span>
-                {d.pricePosition.tier === 'budget' ? 'lower-priced' : 'premium'}.{' '}
-                <SourceLink url={d.pricePosition.url} illustrative={report.illustrative}>
-                  {d.pricePosition.origin === 'brand_site' ? "the brand's own site" : d.pricePosition.domain}
-                </SourceLink>
-                <span className="italic text-ink-soft"> &ldquo;{d.pricePosition.quote}&rdquo;</span>
-              </p>
-            ) : (
-              <p className="ui mt-2 text-[0.92rem] text-ink-soft">
-                No retrieved source states the brand&apos;s price position in words, so no question was left out on price.
-              </p>
-            )}
+            <PriceSupportNote report={report} />
             {d.positioning.length === 0 ? (
               <p className="mt-2 text-ink-soft">No positioning statement could be verified on the pages read.</p>
             ) : (
@@ -133,28 +149,112 @@ export function ContentGaps({ report }: { report: Report }) {
               </ul>
             )}
           </div>
-          <div>
-            <h3 className="text-lg font-semibold">Product lines found on the brand&apos;s own site</h3>
-            <p className="ui mt-1 text-[0.88rem] text-ink-soft">
-              Read from the pages this audit retrieved, each confirmed by a quote from a page. A sample of the site, and
-              separate from the products Gemini lists.
-            </p>
-            {d.productLines.length === 0 ? (
-              <p className="mt-2 text-ink-soft">No product line could be verified on the pages read.</p>
-            ) : (
-              <ul className="ui mt-2 text-[0.95rem]">
-                {d.productLines.map((line) => (
-                  <li key={line.name} className="border-b border-rule py-2">
-                    <SourceLink url={line.ref.url} illustrative={report.illustrative}>
-                      {line.name}
-                    </SourceLink>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
+          <ProductRange report={report} />
         </div>
       ) : null}
     </Section>
+  );
+}
+
+function tierText(tier: 'budget' | 'premium' | null): string {
+  return tier === 'budget' ? 'lower-priced' : 'premium';
+}
+
+/** How well the brand's price tier is supported. Reports saved before version 4 carry only the established position. */
+function PriceSupportNote({ report }: { report: Report }) {
+  const d = report.contentGap.detail;
+  const support = d.priceSupport;
+  if (!support) {
+    // A report saved before the two-source rule: show what it recorded.
+    return d.pricePosition ? (
+      <p className="ui mt-2 text-[0.92rem]">
+        <span className="font-semibold">Price position found in a source: </span>
+        {tierText(d.pricePosition.tier)}.{' '}
+        <SourceLink url={d.pricePosition.url} illustrative={report.illustrative}>
+          {d.pricePosition.origin === 'brand_site' ? "the brand's own site" : d.pricePosition.domain}
+        </SourceLink>
+        <span className="italic text-ink-soft"> &ldquo;{d.pricePosition.quote}&rdquo;</span>
+      </p>
+    ) : (
+      <p className="ui mt-2 text-[0.92rem] text-ink-soft">
+        No retrieved source states the brand&apos;s price position in words, so no question was left out on price.
+      </p>
+    );
+  }
+  if (support.status === 'none') {
+    return (
+      <p className="ui mt-2 text-[0.92rem] text-ink-soft">
+        No retrieved source states the brand&apos;s price position in words, so no question was left out on price.
+      </p>
+    );
+  }
+  if (support.status === 'conflicting') {
+    return (
+      <p className="ui mt-2 text-[0.92rem] text-ink-soft">
+        <span className="font-semibold text-ink">Price position: not established. </span>
+        The sources found do not agree about the brand&apos;s price tier, so no question was left out on price.
+      </p>
+    );
+  }
+  const where = (s: (typeof support.sources)[number]) => (s.origin === 'brand_site' ? "the brand's own site" : s.domain);
+  return (
+    <div className="ui mt-2 text-[0.92rem]">
+      <p>
+        <span className="font-semibold">
+          {support.status === 'established' ? 'Price position, supported by independent sources: ' : 'Price position, insufficiently supported: '}
+        </span>
+        {tierText(support.tier)}.
+        {support.status === 'insufficient'
+          ? ' Only one source states it. That is not enough to leave a question out, so price-tier questions stay counted.'
+          : ''}
+      </p>
+      <ul className="mt-1">
+        {support.sources.map((s) => (
+          <li key={s.evidenceId + s.domain}>
+            <SourceLink url={s.url} illustrative={report.illustrative}>
+              {where(s)}
+            </SourceLink>
+            <span className="italic text-ink-soft"> &ldquo;{s.quote}&rdquo;</span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+const RANGE_HEADING: Record<'identified' | 'partial' | 'not_assessed', string> = {
+  identified: 'Products identified in the pages read',
+  partial: 'Product range: partially assessed',
+  not_assessed: 'Product range: could not be assessed',
+};
+
+function ProductRange({ report }: { report: Report }) {
+  const d = report.contentGap.detail;
+  const range = d.productRange;
+  return (
+    <div>
+      <h3 className="text-lg font-semibold">{range ? RANGE_HEADING[range.status] : "Product lines found on the brand's own site"}</h3>
+      {range ? (
+        <p className="ui mt-1 text-[0.88rem] text-ink-soft">{range.note}</p>
+      ) : (
+        <p className="ui mt-1 text-[0.88rem] text-ink-soft">
+          Read from the pages this audit retrieved, each confirmed by a quote from a page. A sample of the site, and
+          separate from the products Gemini lists.
+        </p>
+      )}
+      {d.productLines.length === 0 ? (
+        range ? null : <p className="mt-2 text-ink-soft">No product line could be verified on the pages read.</p>
+      ) : (
+        <ul className="ui mt-2 text-[0.95rem]">
+          {d.productLines.map((line) => (
+            <li key={line.name} className="border-b border-rule py-2">
+              <SourceLink url={line.ref.url} illustrative={report.illustrative}>
+                {line.name}
+              </SourceLink>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
   );
 }

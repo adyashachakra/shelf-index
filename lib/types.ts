@@ -264,7 +264,22 @@ export interface ChecklistItem {
   unanswered?: boolean;
   /** For category questions: did Gemini name the audited brand when answering it? */
   geminiNamedBrand?: boolean | null;
+  /**
+   * How the evidence on the page relates to the question. Absent in reports saved before the
+   * relevance check; those are read by `level` alone. Only direct, brand-wide and indirect
+   * evidence keeps a level above "none".
+   */
+  relevance?: EvidenceRelevance;
+  /** For a different product: the kind of product the page evidence was about. */
+  evidenceAbout?: string;
+  /** Why the evidence was not accepted, in plain words. */
+  relevanceNote?: string;
 }
+
+/** direct: the same product. brand_wide: a fact about the whole brand. indirect: related but incomplete. */
+export type EvidenceRelevance = 'direct' | 'brand_wide' | 'indirect' | 'different_product' | 'uncertain';
+/** What a reader is shown for a checklist item. */
+export type EvidenceClass = 'clear' | 'touched_on' | 'not_addressed' | 'uncertain';
 
 export type PriceTier = 'budget' | 'premium';
 
@@ -285,6 +300,31 @@ export interface ExcludedQuestion {
   kind: 'product_range' | 'price_tier';
   reason: string;
   sourceUrl?: string;
+  /** For a price tier: each independent source behind it (at least two). */
+  sources?: { domain: string; url: string; quote: string }[];
+}
+
+/**
+ * How well the brand's price tier is supported. A question is left out on price only when
+ * two independent domains state the same tier ("established").
+ */
+export interface PriceSupport {
+  status: 'established' | 'insufficient' | 'conflicting' | 'none';
+  tier: PriceTier | null;
+  /** One entry per independent domain, the most substantial first. */
+  sources: PricePosition[];
+}
+
+/** What was found about the brand's product range on the pages read. Never an inventory of the full range. */
+export interface ProductRangeAssessment {
+  status: 'identified' | 'partial' | 'not_assessed';
+  pagesRead: number;
+  /** Product lines found on the pages, each confirmed by a quote from a page. */
+  linesIdentified: number;
+  /** Product lines the analysis proposed that could not be confirmed on a page (not shown). */
+  unverified: number;
+  /** Always states that this is not a verified inventory of the complete range. */
+  note: string;
 }
 
 export interface ContentGapDetail {
@@ -296,8 +336,12 @@ export interface ContentGapDetail {
   productLines: ProductLine[];
   positioning: PositioningStatement[];
   signatureClaim: { claim: string; ref: QuoteRef } | null;
-  /** Null when no retrieved source states the brand's price position in words. */
+  /** Null unless two independent sources state the brand's price position in words. */
   pricePosition: PricePosition | null;
+  /** How well the price position is supported. Absent in reports saved before version 4. */
+  priceSupport?: PriceSupport;
+  /** Absent in reports saved before version 4. */
+  productRange?: ProductRangeAssessment;
   points: number;
 }
 
@@ -443,7 +487,8 @@ export type OverallConfidence =
 // ---------- The report ----------
 
 export interface Report {
-  version: 3;
+  /** 4 for new reports. Reports saved as 3 are still read: the fields added in 4 are optional. */
+  version: 3 | 4;
   id: string;
   /** True only for the bundled example with a fictional brand. */
   illustrative?: boolean;

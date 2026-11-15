@@ -3,6 +3,7 @@ import { domainMatchesBrand, mentionsBrand } from '../../evidence/brand-match';
 import { cleanDomain, isSocialDomain } from '../../evidence/normalize';
 import { verifiedPriceTier } from '../../evidence/price';
 import { quoteAppearsIn } from '../../evidence/quotes';
+import { assessRelevance } from '../../evidence/relevance';
 import { logEvent } from '../../log';
 import type { CoverageLevel, GeminiAnswer, QuoteRef, SitePage } from '../../types';
 import type { StageContext } from '../context';
@@ -148,12 +149,16 @@ export async function runWebsite(ctx: StageContext): Promise<'done' | 'continue'
             analysis.pricePosition = { tier, origin: 'brand_site', evidenceId: pricePage.id, url: pricePage.url, domain: site.domain ?? '', quote: out.price_position.quote };
           }
         }
+        let unverifiedLines = 0;
         for (const line of out.product_lines) {
           const ref = verify(line.page_id, line.quote);
           if (ref && !analysis.productLines.some((l) => l.name.toLowerCase() === line.name.toLowerCase())) {
             analysis.productLines.push({ name: line.name, ref });
+          } else if (!ref) {
+            unverifiedLines += 1;
           }
         }
+        analysis.productLinesUnverified = unverifiedLines;
         for (const statement of out.positioning) {
           const ref = verify(statement.page_id, statement.quote);
           if (ref) analysis.positioning.push({ statement: statement.statement, ref });
@@ -168,6 +173,7 @@ export async function runWebsite(ctx: StageContext): Promise<'done' | 'continue'
           analysis.relevance.push({ questionId: question.id, fit: found?.fit ?? 'unclear', reason: found?.reason ?? '' });
         }
         const checklistIds = [...questions.map((q) => q.id), ...concerns.map((c) => c.id)];
+        const itemText = new Map<string, string>([...questions.map((q) => [q.id, q.text] as [string, string]), ...concerns.map((c) => [c.id, c.label] as [string, string])]);
         for (const itemId of checklistIds) {
           const found = out.coverage.find((c) => c.item_id.toLowerCase() === itemId.toLowerCase());
           if (!found) {
@@ -182,8 +188,33 @@ export async function runWebsite(ctx: StageContext): Promise<'done' | 'continue'
             continue;
           }
           const ref = verify(found.page_id, found.quote);
-          if (ref) analysis.coverage.push({ itemId, level: found.level, url: ref.url, quote: ref.quote });
-          else analysis.coverage.push({ itemId, level: lower(found.level), downgraded: true });
+          const page = pageById.get(found.page_id);
+          if (!ref && found.relation !== 'different') {
+            // No quote to check the product against: the label is lowered one level, as before.
+            analysis.coverage.push({ itemId, level: lower(found.level), downgraded: true });
+            continue;
+          }
+          // Is the evidence about what the item asks about? A verdict that fails this check takes
+          // the level "none"; a related-but-indirect one is capped at "partial".
+          const check = assessRelevance({
+            itemText: itemText.get(itemId) ?? '',
+            level: found.level,
+            relation: found.relation,
+            asksAbout: found.asks_about,
+            quoteAbout: found.quote_about,
+            quote: ref?.quote ?? '',
+            pageTitle: page?.title ?? '',
+          });
+          const relevanceFields = {
+            relevance: check.relevance,
+            ...(check.evidenceAbout ? { evidenceAbout: check.evidenceAbout } : {}),
+            ...(check.note ? { relevanceNote: check.note } : {}),
+          };
+          if (check.relevance === 'different_product' || check.relevance === 'uncertain') {
+            analysis.coverage.push({ itemId, level: 'none', ...relevanceFields });
+          } else if (ref) {
+            analysis.coverage.push({ itemId, level: check.level, url: ref.url, quote: ref.quote, ...relevanceFields });
+          }
         }
         // Counts and item ids only (never page text or answers): how many verdicts were asked
         // for, how many came back, and which items had none.
@@ -191,6 +222,10 @@ export async function runWebsite(ctx: StageContext): Promise<'done' | 'continue'
           asked: checklistIds.length,
           returned: out.coverage.length,
           missing: analysis.coverage.filter((c) => c.unanswered === true).map((c) => c.itemId).join(','),
+          // Verdicts not accepted because the evidence was about a different product, and
+          // verdicts whose link to the question could not be confirmed (item ids only).
+          different: analysis.coverage.filter((c) => c.relevance === 'different_product').map((c) => c.itemId).join(','),
+          uncertain: analysis.coverage.filter((c) => c.relevance === 'uncertain').map((c) => c.itemId).join(','),
         });
         await ctx.save('siteAnalysis', analysis);
       }

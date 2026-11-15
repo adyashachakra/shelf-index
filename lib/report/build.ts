@@ -293,7 +293,7 @@ function betweenTheLines(meta: JobMeta, data: JobData, core: Core, index: Eviden
       siteEvidence.push({ id: 'site-range-more', label: `Found on ${siteName}: ${lines.length - SITE_LINES_SHOWN} more product lines, listed under "Product lines found on the brand's own site"` });
     }
     const twoLists = 'Two separate lists are set side by side here and never merged.';
-    const siteRange = `The site's range: ${lines.length} product lines were found on the pages read from ${siteName}, each confirmed by a quote from a page.`;
+    const siteRange = `The site's range: ${lines.length} product lines were found on the pages read from ${siteName}, each confirmed by a quote from a page. These are not a verified inventory of the complete range.`;
     const cannot = (reason: string, evidence: InsightEvidence[] = []) =>
       checks.push({ id: 'narrow_range', title, status: 'cannot_assess', basis: 'computed', evidence, reason });
 
@@ -558,14 +558,21 @@ export function buildReport(job: JobMeta, data: JobData): Report {
   const checks = betweenTheLines(meta, data, core, index);
   const synthesis = data.synthesis;
 
-  // A checklist item the site analysis returned no verdict for is still counted as "not
-  // addressed" (the formula is unchanged), so the report says how many there were.
+  // A checklist item the site analysis returned no verdict for, or whose evidence could not be tied
+  // to the question, is LEFT OUT of the content gap score, and the score's confidence is lowered.
+  // A missing or incomplete model answer is not evidence that the site fails to address the question.
   const checklistItems = core.contentGap.detail.checklist;
   const unanswered = checklistItems.filter((item) => item.unanswered).length;
   const warnings = [...meta.warnings];
   if (unanswered > 0) {
     warnings.push(
-      `The analysis of the brand's site returned no verdict for ${unanswered} of the ${checklistItems.length} checklist items. They are counted as not addressed, so content gap severity may be overstated in this audit.`,
+      `The analysis of the brand's site returned no verdict for ${unanswered} of the ${checklistItems.length} checklist items. They are left out of the content gap score, and its confidence is lowered, because a missing answer does not show that the site fails to address them.`,
+    );
+  }
+  const uncertain = checklistItems.filter((item) => item.relevance === 'uncertain').length;
+  if (uncertain > 0) {
+    warnings.push(
+      `For ${uncertain} of the ${checklistItems.length} checklist items, the evidence found on the site could not be tied to the question (for example, it may be about a different product, or the analysis did not say how it relates). They are left out of the content gap score, and its confidence is lowered.`,
     );
   }
 
@@ -609,7 +616,7 @@ export function buildReport(job: JobMeta, data: JobData): Report {
   const model = reportedModel(meta, data);
 
   return {
-    version: 3,
+    version: 4,
     id: meta.id,
     brand: meta.brand,
     brandKey: meta.brandKey,

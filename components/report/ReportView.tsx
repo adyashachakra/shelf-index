@@ -31,6 +31,15 @@ export function ReportView({ report }: { report: Report }) {
         </p>
       ) : null}
 
+      {!report.illustrative && report.version < 4 ? (
+        <p className="ui mb-8 border-2 border-ink px-4 py-3 text-[0.95rem]">
+          This report was saved before the latest changes to the audit rules. It is shown as it was produced. It does
+          not include the price-source count, the check that evidence is about the product asked about, or the
+          product-range status, and its content gap score counted checklist items with no usable answer as not
+          addressed. Run a new audit to see them.
+        </p>
+      ) : null}
+
       <header>
         <p className="ui text-[0.95rem] text-ink-soft">
           Brand audit, {report.category.label}. {formatDateTime(report.createdAt)}

@@ -1,3 +1,4 @@
+import { isLeftOut } from '../evidence/relevance';
 import 'server-only';
 import { readablePages, sourceLabel } from '../audit/evidence-builders';
 import type { JobData, JobMeta } from '../audit/job';
@@ -214,7 +215,7 @@ export function buildDigest(meta: JobMeta, data: JobData, core: Core): Record<st
       signature_claim: core.contentGap.detail.signatureClaim
         ? { claim: core.contentGap.detail.signatureClaim.claim, page_id: core.contentGap.detail.signatureClaim.ref.pageId }
         : 'none verified',
-      checklist: core.contentGap.detail.checklist.map((c) => ({ question_or_concern: c.text, site_coverage: c.level })),
+      checklist: core.contentGap.detail.checklist.map((c) => ({ question_or_concern: c.text, site_coverage: isLeftOut(c) ? 'could not be assessed' : c.level })),
       questions_outside_brand_range: core.contentGap.detail.excluded.map((e) => e.question),
     },
   };

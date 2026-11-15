@@ -92,7 +92,7 @@ const EVIDENCE: EvidenceItem[] = [
 ];
 
 export const EXAMPLE_REPORT: Report = {
-  version: 3,
+  version: 4,
   id: 'example',
   illustrative: true,
   brand: BRAND,
@@ -223,9 +223,17 @@ export const EXAMPLE_REPORT: Report = {
         { id: 'q7', source: 'category_question', text: ANSWERS[6].question, level: 'clear', url: `https://${SITE}/illustrative/s1`, quote: 'Every Northmere product is fragrance-free.', geminiNamedBrand: true },
         { id: 'q8', source: 'category_question', text: ANSWERS[7].question, level: 'partial', downgraded: true, geminiNamedBrand: false },
         { id: 'c1', source: 'customer_concern', text: 'How long does delivery take?', level: 'partial', url: `https://${SITE}/illustrative/s2`, quote: 'Orders ship fast, straight from our studio.' },
-        { id: 'c2', source: 'customer_concern', text: 'What happens if the pump breaks?', level: 'none' },
+        { id: 'c2', source: 'customer_concern', text: 'What happens if the pump breaks?', level: 'none', relevance: 'different_product', evidenceAbout: 'the mineral sunscreen' },
       ],
       excluded: [{ questionId: 'q5', question: ANSWERS[4].question, kind: 'product_range', reason: `The site lists no anti-aging products. ${SITE} shows these product lines: cleansers, moisturisers, mineral sunscreen.` }],
+      productRange: {
+        status: 'identified',
+        pagesRead: 9,
+        linesIdentified: 3,
+        unverified: 0,
+        note: `3 product lines were found and confirmed on 9 pages read. These are the products found on the pages read. They are not a verified inventory of the brand's complete product range.`,
+      },
+      priceSupport: { status: 'none', tier: null, sources: [] },
       productLines: [
         { name: 'Cleansers', ref: { pageId: 'S3', url: `https://${SITE}/illustrative/s3`, quote: 'Our oat cleanser is made for sensitive and reactive skin.' } },
         { name: 'Moisturisers', ref: { pageId: 'S1', url: `https://${SITE}/illustrative/s1`, quote: 'Gentle cleansers, moisturisers and a mineral sunscreen' } },

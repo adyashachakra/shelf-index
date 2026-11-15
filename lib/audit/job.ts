@@ -8,6 +8,7 @@ import type {
   ClaimCheck,
   Concern,
   CoverageLevel,
+  EvidenceRelevance,
   Disagreement,
   EvidenceItem,
   EvidenceLabel,
@@ -127,7 +128,19 @@ export interface SiteAnalysisData {
   signatureClaim: { claim: string; ref: QuoteRef } | null;
   relevance: { questionId: string; fit: 'in_range' | 'out_of_range' | 'unclear'; reason: string }[];
   /** unanswered: the model returned no verdict for this item at all (it is still counted as "none"). */
-  coverage: { itemId: string; level: CoverageLevel; url?: string; quote?: string; downgraded?: boolean; unanswered?: boolean }[];
+  coverage: {
+    itemId: string;
+    level: CoverageLevel;
+    url?: string;
+    quote?: string;
+    downgraded?: boolean;
+    unanswered?: boolean;
+    relevance?: EvidenceRelevance;
+    evidenceAbout?: string;
+    relevanceNote?: string;
+  }[];
+  /** Product lines the analysis proposed that could not be confirmed against a page (not shown). */
+  productLinesUnverified?: number;
   /** Price position stated in words on the brand's own pages; null when the pages do not say. */
   pricePosition: PricePosition | null;
 }

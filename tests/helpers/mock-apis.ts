@@ -107,7 +107,10 @@ function labelsFor(items: Item[]): unknown {
       // Overclaims on purpose: a cause in the label and a brand-wide verdict in the summary.
       { label: 'Formula change caused delays', summary: 'A widespread safety issue that damages trust.', evidence_ids: ['D2', 'C2'], quote_evidence_id: 'D2', quote_text: '', scope: 'unclear', product: '' },
     ],
-    concerns: [{ label: 'How long does shipping take?', evidence_ids: ['D2', 'C2'] }],
+    concerns: [
+      { label: 'How long does shipping take?', evidence_ids: ['D2', 'C2'] },
+      { label: 'Does the cleanser dry out my skin?', evidence_ids: ['D1', 'D4'] },
+    ],
     advocacy: [
       { evidence_id: 'D1', note: 'Recommends it to friends.' },
       { evidence_id: 'D2', note: 'Negative item: must be rejected as advocacy.' },
@@ -143,11 +146,20 @@ function siteAnalysis(b: Record<string, unknown>): unknown {
     })),
     coverage: [
       ...questions.map((q) => {
-        if (q.id === 'q1' || q.id === 'q7') return { item_id: q.id, level: 'clear', page_id: page(1).id, quote: quote(1) };
-        if (q.id === 'q2') return { item_id: q.id, level: 'partial', page_id: page(0).id, quote: 'a quote that cannot be verified on the page' };
-        return { item_id: q.id, level: 'none', page_id: '', quote: '' };
+        // q1 and q7: a fact about the whole brand. q2: a label whose quote cannot be found on the page.
+        if (q.id === 'q1' || q.id === 'q7') return { item_id: q.id, level: 'clear', page_id: page(1).id, quote: quote(1), asks_about: 'any', quote_about: 'brand-wide', relation: 'brand_wide' };
+        if (q.id === 'q2') return { item_id: q.id, level: 'partial', page_id: page(0).id, quote: 'a quote that cannot be verified on the page', asks_about: 'any', quote_about: 'brand-wide', relation: 'brand_wide' };
+        // q6: the model says "clear" but cannot say how the quote relates to the question.
+        if (q.id === 'q6') return { item_id: q.id, level: 'clear', page_id: page(0).id, quote: quote(0), asks_about: '', quote_about: '', relation: 'unknown' };
+        return { item_id: q.id, level: 'none', page_id: '', quote: '', asks_about: '', quote_about: '', relation: 'unknown' };
       }).filter((entry) => entry.item_id !== 'q4'), // no verdict at all comes back for q4
-      ...concerns.map((c) => ({ item_id: c.id, level: 'partial', page_id: page(2).id, quote: quote(2) })),
+      ...concerns.map((c, i) =>
+        i === 0
+          ? { item_id: c.id, level: 'partial', page_id: page(2).id, quote: quote(2), asks_about: 'any', quote_about: 'sunscreen', relation: 'same_product' }
+          : // The fault from the third live audit: a quote about one product offered as a clear answer about another.
+            // The model calls it "the same product"; the words quoted are about a sunscreen and the concern is about a cleanser.
+            { item_id: c.id, level: 'clear', page_id: page(2).id, quote: quote(2), asks_about: 'cleanser', quote_about: 'sunscreen', relation: 'same_product' },
+      ),
     ],
     // The model claims the site calls itself luxury, with a quote that has no price word in it: must be rejected.
     price_position: { tier: 'premium', page_id: page(0).id, quote: quote(0) },
@@ -282,7 +294,7 @@ function tavilyResponse(body: Record<string, unknown>): unknown {
     ];
   } else {
     results = [
-      { title: 'Glowwell review: gentle but slow to arrive', url: 'https://skinjournal.example.com/glowwell-review', content: `${BRAND} formulas are gentle and well priced, though our order was slow. We may earn a commission from links on this page.`, score: 0.9, raw_content: null },
+      { title: 'Glowwell review: gentle, affordable and slow to arrive', url: 'https://skinjournal.example.net/glowwell-review', content: `${BRAND} formulas are gentle and well priced, though our order was slow. We may earn a commission from links on this page.`, score: 0.9, raw_content: null },
       { title: 'Best gentle cleansers tested', url: 'https://beautydesk.example.com/best-gentle-cleansers', content: `${BRAND} Oat Cleanser was the gentlest of the twelve affordable drugstore cleansers we tested this season for reactive skin.`, score: 0.85, raw_content: null },
       { title: 'Glowwell complaints roundup', url: 'https://forum.example.org/t/glowwell-complaints/88', content: `Several members complained that ${BRAND} pumps break and that support is slow to respond to messages.`, score: 0.8, raw_content: null },
       { title: 'Unrelated listicle', url: 'https://listicle.example.com/top-10', content: `A list that briefly names ${BRAND} among forty other brands without saying anything about it whatsoever.`, score: 0.5, raw_content: null },
