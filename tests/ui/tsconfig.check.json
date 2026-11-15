@@ -1,0 +1,37 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "types": [
+      "node"
+    ],
+    "paths": {
+      "@/*": [
+        "../../*"
+      ],
+      "server-only": [
+        "../stubs/server-only.ts"
+      ],
+      "next": [
+        "./stubs/next.ts"
+      ],
+      "next/link": [
+        "./stubs/next-link.tsx"
+      ],
+      "next/navigation": [
+        "./stubs/next-navigation.ts"
+      ],
+      "next/font/google": [
+        "./stubs/next-font.ts"
+      ],
+      "recharts": [
+        "./stubs/recharts.tsx"
+      ]
+    }
+  },
+  "include": [
+    "../../app/**/*",
+    "../../components/**/*",
+    "../../lib/**/*",
+    "./**/*"
+  ]
+}

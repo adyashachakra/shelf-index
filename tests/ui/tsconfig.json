@@ -1,0 +1,22 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["dom", "dom.iterable", "esnext"],
+    "strict": true,
+    "noEmit": true,
+    "esModuleInterop": true,
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "jsx": "react-jsx",
+    "skipLibCheck": true,
+    "paths": {
+      "@/*": ["../../*"],
+      "server-only": ["../stubs/server-only.ts"],
+      "next/link": ["./stubs/next-link.tsx"],
+      "next/navigation": ["./stubs/next-navigation.ts"],
+      "next/font/google": ["./stubs/next-font.ts"],
+      "recharts": ["./stubs/recharts.tsx"]
+    }
+  },
+  "include": ["../../app/**/*", "../../components/**/*", "../../lib/**/*", "./**/*"]
+}

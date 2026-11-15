@@ -1,0 +1,12 @@
+import type { ReactNode } from 'react';
+type Loose = { children?: ReactNode; [prop: string]: unknown };
+const Box = ({ children }: Loose) => <div data-recharts-stub="1">{children}</div>;
+const None = (_props: Loose) => null;
+export const ResponsiveContainer = Box;
+export const BarChart = Box;
+export const Bar = None;
+export const CartesianGrid = None;
+export const Legend = (_props: Loose & { formatter?: (value: unknown) => ReactNode }) => null;
+export const Tooltip = None;
+export const XAxis = None;
+export const YAxis = None;
