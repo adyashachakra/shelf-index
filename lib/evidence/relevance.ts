@@ -18,7 +18,7 @@
 // Nothing here changes a scoring formula. A verdict about a different product takes the level
 // "none"; an uncertain one is left out of the score (see isLeftOut).
 
-import type { CoverageLevel, EvidenceClass, EvidenceRelevance } from '../types';
+import type { CoverageLevel, EvidenceClass, EvidenceRelevance, ExpertEvidence } from '../types';
 
 export type Relation = 'same_product' | 'brand_wide' | 'related' | 'different' | 'unknown';
 
@@ -143,4 +143,70 @@ export function evidenceClass(item: { level: CoverageLevel; relevance?: Evidence
   if (item.level === 'clear') return 'clear';
   if (item.level === 'partial') return 'touched_on';
   return 'not_addressed';
+}
+
+// ---------------------------------------------------------------------------------------------
+// Questions about what EXPERTS recommend ("Which brands do dermatologists recommend most?").
+//
+// Three different things can appear on a brand's pages, and only the last two answer such a question:
+//   collaboration   experts helped make or test the products ("we partnered with dermatologists",
+//                   "developed with doctors", "dermatologist tested"). It shows involvement. It does not
+//                   show that anyone recommends the brand.
+//   endorsement     experts or an expert body approve or back the brand ("endorsed by", "approved by",
+//                   "accepted by", "seal of acceptance", "trusted by", "backed by").
+//   recommendation  experts recommend it ("dermatologist recommended", "recommended by doctors").
+// A quote that shows collaboration only is capped at "touched on". A quote with no reference to
+// experts at all cannot be tied to the question. Word lists, not comprehensive: a phrasing they do not
+// know is read as collaboration or as no expert reference, never as a recommendation.
+// No extra request is made: this runs on the quote the existing analysis already returned.
+// ---------------------------------------------------------------------------------------------
+
+const EXPERT_TERM =
+  '(?:dermatolog\\w*|doctors?|physicians?|pediatricians?|paediatricians?|clinicians?|dentists?|dental professionals?|veterinarians?|vets?|pharmacists?|nutritionists?|dietitians?|therapists?|experts?|specialists?|estheticians?|aestheticians?|medical professionals?|healthcare professionals?)';
+const RECOMMEND_TERM = '(?:recommend\\w*|prescrib\\w*|suggest\\w*|advis\\w*)';
+const ENDORSE_TERM = '(?:endors\\w*|approv\\w*|accept\\w*|accredit\\w*|seal of|backed|trusted|chosen|certif\\w*)';
+
+const EXPERT_RE = new RegExp(`\\b${EXPERT_TERM}\\b`, 'i');
+const ASKS_EXPERT_RECOMMENDATION = new RegExp(`\\b${EXPERT_TERM}\\b[^.?!]{0,80}\\b(?:${RECOMMEND_TERM}|${ENDORSE_TERM})|\\b(?:${RECOMMEND_TERM}|${ENDORSE_TERM})\\b[^.?!]{0,80}\\b${EXPERT_TERM}\\b`, 'i');
+const RECOMMENDATION_RE = new RegExp(`\\b${EXPERT_TERM}\\b[^.]{0,60}\\b${RECOMMEND_TERM}|\\b${RECOMMEND_TERM}\\b[^.]{0,60}\\b${EXPERT_TERM}\\b`, 'i');
+const ENDORSEMENT_RE = new RegExp(`\\b${EXPERT_TERM}\\b[^.]{0,60}\\b${ENDORSE_TERM}|\\b${ENDORSE_TERM}\\b[^.]{0,60}\\b${EXPERT_TERM}\\b`, 'i');
+
+/** Is this checklist item asking what experts recommend or endorse? */
+export function isExpertRecommendationQuestion(text: string): boolean {
+  return ASKS_EXPERT_RECOMMENDATION.test(text);
+}
+
+/** What a quote shows about experts, or null when it does not mention experts at all. */
+export function expertEvidenceIn(quote: string): ExpertEvidence | null {
+  if (!EXPERT_RE.test(quote)) return null;
+  if (RECOMMENDATION_RE.test(quote)) return 'recommendation';
+  if (ENDORSEMENT_RE.test(quote)) return 'endorsement';
+  return 'collaboration';
+}
+
+/**
+ * Apply the expert rule to a verdict that passed the relevance check. Only a verdict with a verified
+ * quote for an expert-recommendation question is touched; every other verdict is returned as it was.
+ */
+export function applyExpertRule(input: { itemText: string; quote: string; outcome: RelevanceOutcome }): RelevanceOutcome & { expertEvidence?: ExpertEvidence } {
+  const { outcome } = input;
+  if (input.quote === '' || outcome.relevance === 'different_product' || outcome.relevance === 'uncertain') return outcome;
+  if (!isExpertRecommendationQuestion(input.itemText)) return outcome;
+  const shown = expertEvidenceIn(input.quote);
+  if (shown === null) {
+    return {
+      level: 'none',
+      relevance: 'uncertain',
+      note: 'The question asks what experts recommend, and the words quoted do not mention experts, so they could not be tied to it.',
+    };
+  }
+  if (shown === 'collaboration') {
+    return {
+      level: outcome.level === 'clear' ? 'partial' : outcome.level,
+      relevance: 'indirect',
+      expertEvidence: 'collaboration',
+      note: 'The words quoted show experts worked with the brand (helped develop or test it), not that experts recommend or endorse it. That counts as touched on, not as a clear answer.',
+    };
+  }
+  return { ...outcome, expertEvidence: shown };
 }

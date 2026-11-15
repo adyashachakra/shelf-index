@@ -616,7 +616,7 @@ export function buildReport(job: JobMeta, data: JobData): Report {
   const model = reportedModel(meta, data);
 
   return {
-    version: 4,
+    version: 5,
     id: meta.id,
     brand: meta.brand,
     brandKey: meta.brandKey,

@@ -69,11 +69,51 @@ const legacy: Report = {
   },
 };
 
+// REAL saved reports of the earlier formats (see tests/legacy-reports.test.ts): each must render, with the
+// earlier-version notice, and without anything the old report never held.
+function fixtureChecks(): [string, string, string[]][] {
+  const out: [string, string, string[]][] = [];
+  for (const version of [2, 3, 4]) {
+    const report = JSON.parse(readFileSync(new URL(`../fixtures/report-format-${version}.json`, import.meta.url), 'utf8')) as Report;
+    const html = page(`format${version}`, <ReportView report={report} />);
+    const needles = ['saved before the latest changes', 'nothing missing from it has been filled in', 'Single-audit estimate', report.brand];
+    if (version === 4) needles.push('Products identified in the pages read');
+    if (version < 4) needles.push("Product lines found on the brand");
+    out.push([`format${version}`, html, needles]);
+    for (const absent of version < 4 ? ['Price position, supported by', 'Products identified in the pages read', 'Product range: partially assessed'] : []) {
+      if (html.includes(absent)) {
+        console.error(`FABRICATED in format${version}: ${absent}`);
+        process.exitCode = 1;
+      }
+    }
+  }
+  return out;
+}
+
+const withSetAside: Report = {
+  ...EXAMPLE_REPORT,
+  illustrative: false,
+  contentGap: {
+    ...EXAMPLE_REPORT.contentGap,
+    detail: {
+      ...EXAMPLE_REPORT.contentGap.detail,
+      priceSupport: {
+        status: 'not_independent',
+        tier: 'premium',
+        sources: [],
+        setAside: [{ domain: 'galderma.com', url: 'https://www.galderma.com/news/x', quote: 'Cetaphil Unveils Premium Product Line', tier: 'premium', reason: 'a press release or company announcement' }],
+      },
+    },
+  },
+};
+
 const checks: [string, string, string[]][] = [
   ['home', page('home', <HomePage />), ['Run audit', 'Brand name', 'Example report', 'Built by Adya Chakra']],
   ['privacy', page('privacy', <PrivacyPage />), ['human reviewers', 'Hobby plan', 'YouTube Terms of Service', 'Google Privacy Policy']],
   ['example', page('example', <ReportView report={EXAMPLE_REPORT} />), ['Illustrative example', 'Gemini API recommendation visibility', 'Between the lines', 'Prioritised fix list', 'Sources and methodology', 'Insufficient data', 'Single-audit estimate', 'Based on', 'Products identified in the pages read', 'not a verified inventory', 'about the mineral sunscreen', 'does not show that the brand has changed']],
   ['legacy', page('legacy', <ReportView report={legacy} />), ['Product lines found on the brand', 'Single-audit estimate', 'Touched on', 'Not addressed', 'saved before the latest changes']],
+  ...fixtureChecks(),
+  ['setaside', page('setaside', <ReportView report={withSetAside} />), ['Price position: not established.', 'Found but not counted as independent evidence', 'a press release or company announcement', 'galderma.com']],
   ['empty', page('empty', <ReportView report={empty} />), ['Insufficient data', 'Could not be assessed', 'Overall confidence: Not stated']],
   ['notfound', page('notfound', <NotFound />), ['not found']],
 ];

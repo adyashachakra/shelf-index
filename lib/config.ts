@@ -38,16 +38,20 @@ export const JOB_TTL_SECONDS = 26 * 60 * 60;
 export const RESERVATION_MAX_AGE_MS = 26 * 60 * 60 * 1000;
 export const INFLIGHT_TTL_SECONDS = 26 * 60 * 60;
 /**
- * Bump this whenever the shape of a saved report changes. New reports are saved under this
- * version, and a repeat audit never reuses a report saved under an older one.
+ * Bump this whenever the shape of a saved report, or a rule that changes its verdicts, changes.
+ * New reports are saved under this version, and a repeat audit never reuses a report saved under an
+ * older one (so an audit repeated after a rule change runs again under the new rules).
  */
-export const REPORT_FORMAT_VERSION = 4;
+export const REPORT_FORMAT_VERSION = 5;
 /**
- * Saved-report versions that can still be OPENED, newest first. Version 4 only adds optional
- * fields to version 3, and the report pages treat each of them as optional, so version 3 links
- * keep working until they expire. Version 2 (the first V1.1 preview) has the same shape and renders, but is not enabled; version 1 (V1.0) has a different shape and cannot be rendered by these pages.
+ * Saved-report versions that can still be OPENED, newest first. Versions 3 to 5 only differ by
+ * optional fields and by the rules that produced the verdicts, and the report pages treat every
+ * newer field as optional, so older links keep working until they expire. Version 2 (the first
+ * V1.1 preview) has the same overall shape and is opened as it was saved: nothing missing is filled
+ * in. Version 1 (V1.0) has a different shape and cannot be rendered by these pages: V1.0 reports
+ * stay on the original deployment.
  */
-export const READABLE_REPORT_VERSIONS: readonly number[] = [4, 3];
+export const READABLE_REPORT_VERSIONS: readonly number[] = [5, 4, 3, 2];
 /** Share of the configured per-minute limit the app allows itself to use. */
 export const GEMINI_RPM_HEADROOM = 0.8;
 

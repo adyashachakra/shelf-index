@@ -274,11 +274,15 @@ export interface ChecklistItem {
   evidenceAbout?: string;
   /** Why the evidence was not accepted, in plain words. */
   relevanceNote?: string;
+  /** For a question about what experts recommend: what the quoted evidence shows about the experts. */
+  expertEvidence?: ExpertEvidence;
 }
 
 /** direct: the same product. brand_wide: a fact about the whole brand. indirect: related but incomplete. */
 export type EvidenceRelevance = 'direct' | 'brand_wide' | 'indirect' | 'different_product' | 'uncertain';
 /** What a reader is shown for a checklist item. */
+/** What a quote shows about experts: they recommend the brand, endorse it, or only worked with it. */
+export type ExpertEvidence = 'recommendation' | 'endorsement' | 'collaboration';
 export type EvidenceClass = 'clear' | 'touched_on' | 'not_addressed' | 'uncertain';
 
 export type PriceTier = 'budget' | 'premium';
@@ -309,10 +313,19 @@ export interface ExcludedQuestion {
  * two independent domains state the same tier ("established").
  */
 export interface PriceSupport {
-  status: 'established' | 'insufficient' | 'conflicting' | 'none';
+  /**
+   * established: two sources agree and at least one is genuinely independent of the brand.
+   * insufficient: fewer than two usable sources.
+   * not_independent: sources were found but none is independent of the brand (press releases and
+   * company material are set aside), so the position cannot be established.
+   * conflicting: usable sources name different tiers. none: nothing found.
+   */
+  status: 'established' | 'insufficient' | 'not_independent' | 'conflicting' | 'none';
   tier: PriceTier | null;
-  /** One entry per independent domain, the most substantial first. */
+  /** The sources that counted: at most one per site, the brand's own site at most once. */
   sources: PricePosition[];
+  /** Sources found but not counted as independent evidence (press releases, company material), with the reason. */
+  setAside?: { domain: string; url: string; quote: string; tier: PriceTier; reason: string }[];
 }
 
 /** What was found about the brand's product range on the pages read. Never an inventory of the full range. */
@@ -488,7 +501,7 @@ export type OverallConfidence =
 
 export interface Report {
   /** 4 for new reports. Reports saved as 3 are still read: the fields added in 4 are optional. */
-  version: 3 | 4;
+  version: 2 | 3 | 4 | 5;
   id: string;
   /** True only for the bundled example with a fictional brand. */
   illustrative?: boolean;

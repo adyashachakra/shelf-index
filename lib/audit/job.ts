@@ -9,6 +9,7 @@ import type {
   Concern,
   CoverageLevel,
   EvidenceRelevance,
+  ExpertEvidence,
   Disagreement,
   EvidenceItem,
   EvidenceLabel,
@@ -138,6 +139,7 @@ export interface SiteAnalysisData {
     relevance?: EvidenceRelevance;
     evidenceAbout?: string;
     relevanceNote?: string;
+    expertEvidence?: ExpertEvidence;
   }[];
   /** Product lines the analysis proposed that could not be confirmed against a page (not shown). */
   productLinesUnverified?: number;

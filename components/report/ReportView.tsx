@@ -31,12 +31,14 @@ export function ReportView({ report }: { report: Report }) {
         </p>
       ) : null}
 
-      {!report.illustrative && report.version < 4 ? (
+      {!report.illustrative && report.version < 5 ? (
         <p className="ui mb-8 border-2 border-ink px-4 py-3 text-[0.95rem]">
-          This report was saved before the latest changes to the audit rules. It is shown as it was produced. It does
-          not include the price-source count, the check that evidence is about the product asked about, or the
-          product-range status, and its content gap score counted checklist items with no usable answer as not
-          addressed. Run a new audit to see them.
+          This report was saved before the latest changes to the audit rules. It is shown as it was produced, and nothing
+          missing from it has been filled in. Later versions require an independent source for a price tier, check that
+          evidence is about the product or question asked, treat experts who only helped make or test a product as
+          different from experts who recommend it, and show the product-range status. An older report may lack some of
+          these checks, and its content gap score may count items with no usable answer as not addressed. Run a new audit
+          to see them.
         </p>
       ) : null}
 

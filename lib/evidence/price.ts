@@ -165,3 +165,86 @@ export function sourceSiteKey(domain: string, brandDomains: string[] = []): stri
   const own = brandDomains.map(registrableDomain).filter((d) => d !== '');
   return own.includes(key) ? own[0] : key; // every domain the brand owns is one source
 }
+
+// ---------------------------------------------------------------------------------------------
+// Which sources may count as INDEPENDENT support for a price tier.
+//
+// The brand's own site may be one of the two sources a price tier needs. Everything else must be
+// a source the brand did not write and does not own: a corporate press release, an announcement
+// by the company (or its parent company), or other company-owned promotional material is NOT
+// independent evidence, whatever domain it is on. At least one genuinely independent source is
+// always required. When independence cannot be shown, the price position stays unestablished.
+//
+// What this code can check, with plain string rules and no lookup, no search and no package:
+//   1. the domain is the brand's own or one it is known to own                       -> brand
+//   2. the domain is a press-release wire service (prnewswire.com and similar)       -> company material
+//   3. the address is under a press or newsroom path, or a news path with an
+//      announcement headline ("... Unveils ...", "... Announces ...")                -> company material
+//   4. the brand's own pages name the domain's company as the owner, publisher or
+//      copyright holder (for example "(c) Galderma", "a brand of Galderma")           -> company material
+// LIMITS, stated in the README and in the report: this cannot discover every parent company, every
+// subsidiary or every advertorial. A company site that fits none of the four tests is treated as
+// independent. A genuine news article under a news path with an announcement-style headline is
+// set aside by test 3 (the safe direction: the price position then stays unestablished).
+// ---------------------------------------------------------------------------------------------
+
+export type SourceIndependence = 'brand' | 'company_material' | 'independent';
+
+const WIRE_SERVICES = [
+  'prnewswire.com', 'businesswire.com', 'globenewswire.com', 'prweb.com', 'einpresswire.com', 'newswire.com',
+  'accesswire.com', 'openpr.com', 'pressrelease.com', '24-7pressrelease.com', 'send2press.com', 'prlog.org',
+  'issuewire.com', 'mynewsdesk.com', 'newsdirect.com',
+];
+const PRESS_PATH = /(^|\/)(press|press-?releases?|news-?releases?|news-?room|press-?room|media-?(centre|center|room|kit)|investors?|investor-relations|ir|corporate(-news)?)(\/|$)/i;
+const NEWS_PATH = /(^|\/)(news|media|company-news)(\/|$)/i;
+const ANNOUNCEMENT = /\b(unveils?|announces?|launch(es|ed)?|introduces?|debuts?|reveals?|expands?|appoints?|welcomes?|celebrates?|partners? with|signs|completes|acquires?)\b/i;
+
+function pathOf(url: string): string {
+  try {
+    return new URL(url).pathname.toLowerCase();
+  } catch {
+    return url.toLowerCase().replace(/^https?:\/\/[^/]*/, '').replace(/[?#].*$/, '');
+  }
+}
+
+/** A press release or corporate announcement, judged from the domain, the address and the headline. */
+export function looksLikeCompanyMaterial(input: { domain: string; url: string; quote: string }): boolean {
+  const registrable = registrableDomain(input.domain);
+  if (WIRE_SERVICES.includes(registrable)) return true;
+  const path = pathOf(input.url);
+  if (PRESS_PATH.test(path)) return true;
+  return NEWS_PATH.test(path) && (ANNOUNCEMENT.test(input.quote) || ANNOUNCEMENT.test(path.replace(/[-_/]+/g, ' ')));
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/**
+ * Do the brand's own pages name this domain's company as the owner, publisher or copyright holder?
+ * Looks for the company name (the first label of the domain, at least four letters) next to a
+ * word such as "(c)", "copyright", "a brand of", "owned by", "part of", "manufactured by" or
+ * "trademark of". A media outlet merely listed on the brand's site ("as seen in ...") is not caught.
+ */
+export function namedAsOwnerOnBrandSite(domain: string, brandPagesText: string): boolean {
+  const label = registrableDomain(domain).split('.')[0] ?? '';
+  if (label.length < 4 || brandPagesText === '') return false;
+  const name = escapeRegExp(label);
+  const before = '(?:©|\\(c\\)|copyright|trademarks? of|registered trademarks? of|owned by|a (?:division|brand|business|company|subsidiary|member) of|part of(?: the)?|manufactured by|marketed by|distributed by|made by|produced by)';
+  return new RegExp(`${before}[^.\\n]{0,70}\\b${name}\\b`, 'i').test(brandPagesText);
+}
+
+/** The independence of one source: the brand's own site, company material, or independent. */
+export function sourceIndependence(
+  entry: { domain: string; url: string; quote: string },
+  brandDomains: string[],
+  brandPagesText: string,
+): { kind: SourceIndependence; reason?: string } {
+  const key = registrableDomain(entry.domain);
+  if (key !== '' && brandDomains.map(registrableDomain).includes(key)) return { kind: 'brand' };
+  if (looksLikeCompanyMaterial(entry)) return { kind: 'company_material', reason: 'a press release or company announcement' };
+  if (key !== '' && namedAsOwnerOnBrandSite(entry.domain, brandPagesText)) {
+    return { kind: 'company_material', reason: "the company is named on the brand's own site as its owner or publisher" };
+  }
+  return { kind: 'independent' };
+}

@@ -96,7 +96,10 @@ For each counted question the brand earns a credit by where Gemini placed it:
      other one. The words must be found in the source and must be about the brand. Pages count by
      website: several pages of one domain are one source, and a subdomain of the brand's own domain
      is the brand's own site. The brand's own site can be one of the two, but a second, different
-     domain is needed. A YouTube viewer comment never counts. Gemini's own opinion of the brand's
+     domain is needed, and **at least one of the sources must be independent of the brand**: a
+     press release, a corporate announcement or other company material (including a parent
+     company's) never counts. If independence cannot be shown, the price position stays
+     unestablished and the question counts. A YouTube viewer comment never counts. Gemini's own opinion of the brand's
      price level is never used. With one source the question counts, and the report says the price
      tier is insufficiently supported. If the sources disagree, or none states it, the question counts.
 
@@ -138,7 +141,10 @@ Not addressed = 1 point, partly = 0.5, clearly = 0.
   a fact about the whole brand), *touched on* (related but incomplete), *not addressed* (the page
   is about a different product: a lotion quote does not answer a cleanser question, even from the
   same brand) and *uncertain* (the link cannot be confirmed). Only direct and brand-wide evidence
-  can earn "clearly". Evidence about another product is "not addressed" (1 point), so it never lowers the
+  can earn "clearly". For a question about what experts recommend ("which brands do dermatologists
+  recommend?"), the quote must show experts *recommending or endorsing* the brand. A quote saying
+  experts helped make or test the products (*collaboration*) is only "touched on", and a quote that
+  does not mention experts at all is uncertain. Evidence about another product is "not addressed" (1 point), so it never lowers the
   gap. An *uncertain* item, and an item for which the analysis returned no verdict at all, is **left out of
   the content gap score** and the score's confidence is lowered one level, with a warning in the report: a
   missing or incomplete model answer is not proof that the site fails to address the question. The formula is
@@ -367,6 +373,9 @@ These three corrections pass the simulated tests. Their own live run is the next
   on the model filling in three new fields in the existing site-analysis request; if it does not,
   items are reported as uncertain, left out of the score and the confidence is lowered, with a warning.
 - The three corrections listed just above.
+- Patch 4 (independent-source rule for price tiers, expert collaboration vs endorsement vs
+  recommendation, reading of format 2 reports). Tested with simulated services and with real
+  saved reports of formats 2, 3 and 4; the live Cetaphil result under these rules has not been run.
 - Whether content gap severity is stable from run to run. The two Cetaphil audits, about two
   hours apart on the same model, gave 55 and 78. The formula, the instruction for this step and
   the code that fetches the brand's pages were the same in both. The search returned different
@@ -393,10 +402,11 @@ These three corrections pass the simulated tests. Their own live run is the next
 | The four API routes as HTTP handlers | 6 tests | Real handlers, real Redis, simulated APIs |
 | Evidence rules: price-tier relevance in every category, quotes about the brand, brand capitalisation, graded patterns, wording that overclaims | 12 tests | Real code, no services needed |
 | Patch 3: two independent price sources and registrable domains, the four evidence classes (including a different-product quote), items left out of the score, the three product-range states | 19 + 5 tests | Real code, no services needed |
-| Saved reports across the format change (format 3 still opens; formats 2 and 1 are not read; old cached reports are not reused) | 3 tests | Real Redis |
+| Patch 4: independence of price sources (press releases, parent-company material, brand site plus one independent source), expert collaboration vs endorsement vs recommendation | 13 tests | Real code, no services needed |
+| Saved reports across format changes: real format 2, 3 and 4 reports open and the API returns exactly what was saved; nothing missing is invented; format 1 is not read; old cached reports are not reused | 8 tests | Real Redis, real route handler |
 | TypeScript, engine and API routes | Strict compile, zero errors | Real compiler |
 | TypeScript, pages and components | Strict compile with stand-in typings for React, Next.js and Recharts | Partial locally; the real check is the Vercel build |
-| Every page renders: the example, an all-"insufficient data" report, and a report produced by the engine in the tests | Server-rendered to HTML and screenshotted at desktop and phone widths | Stand-ins for Next.js and Recharts |
+| Every page renders: the example, an all-"insufficient data" report, a report produced by the engine in the tests, and real saved reports of formats 2, 3 and 4 | Server-rendered to HTML and screenshotted at desktop and phone widths | Stand-ins for Next.js and Recharts |
 
 To run the tests yourself (optional, needs Node.js and a local Redis server on port 6399):
 `npm install`, then `npm test`.
@@ -421,8 +431,20 @@ To run the tests yourself (optional, needs Node.js and a local Redis server on p
   `shop.brand.com` and `www.brand.com` are one, and so is any other domain the audit found to belong to
   the brand. The rule is plain string handling with a short built-in list of common endings such as
   `co.uk` and of shared hosts such as `blogspot.com`; it is not a full public-suffix list.
-- A question is left out on price only when two independent websites state the brand's price tier
-  in words. With one source, a budget brand is still counted on the "luxury" question and the
+- **What counts as an independent price source, and what this rule cannot know.** The brand's own
+  site may be one source. Any other source must not be the brand's, and must not be company
+  material. A source is set aside as company material when: it is on a press-release wire service
+  (`prnewswire.com`, `businesswire.com` and similar); its address is under a press or newsroom path,
+  or under a news path with an announcement headline ("... Unveils ...", "... Launches ..."); or the
+  brand's own pages name that company as owner, publisher or copyright holder ("(c) Galderma", "a
+  brand of ..."). The rule is plain string checks: no lookup, no search, no extra request, no package.
+  It **cannot** discover a parent company or subsidiary the brand's pages do not name, and it cannot
+  recognise an advertorial or sponsored article that looks like an ordinary one. Such a source is
+  treated as independent. In the other direction, a genuine news article with an announcement-style
+  headline under a news path is set aside, so the price position stays unestablished (the safe
+  direction). Set-aside sources are listed in the report with the reason.
+- A question is left out on price only when two websites state the brand's price tier in words,
+  at least one of them independent of the brand. With one source, a budget brand is still counted on the "luxury" question and the
   report says the tier is insufficiently supported. This audit does not retrieve prices or retailer
   listings, so it cannot confirm a price tier from numbers.
 - Scores are single-audit estimates. Running the same audit again can give different scores,

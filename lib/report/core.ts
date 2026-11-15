@@ -3,7 +3,7 @@ import { audienceItems, readablePages } from '../audit/evidence-builders';
 import type { JobData, JobMeta } from '../audit/job';
 import { clip } from '../evidence/normalize';
 import { isLeftOut } from '../evidence/relevance';
-import { findStatedPricePositions, questionPriceTier, questionTierPhrase, sourceSiteKey, tierPhrase, tiersConflict, tierWordsIn } from '../evidence/price';
+import { findStatedPricePositions, questionPriceTier, questionTierPhrase, sourceIndependence, sourceSiteKey, tierPhrase, tiersConflict, tierWordsIn } from '../evidence/price';
 import { scoreContentGap, gapPoints, MIN_CHECKLIST_ITEMS, MIN_READABLE_PAGES } from '../scoring/content-gap';
 import { scorePerception } from '../scoring/perception';
 import { scoreVisibility } from '../scoring/visibility';
@@ -53,7 +53,10 @@ export interface RangeExclusion {
  *
  * Counting rules, which decide whether a question may be left out on price:
  *   - Pages are counted by site: several pages of one domain are ONE source.
- *   - The brand's own site may be one of the two, but a second, different domain is needed.
+ *   - The brand's own site may be one of the two, but a second, different domain is needed, and at
+ *     least one source must be genuinely independent of the brand. Press releases, corporate
+ *     announcements and company-owned material (including a parent company's) are set aside and
+ *     never count as independent evidence. If independence cannot be shown, the position stays unestablished.
  *   - A YouTube viewer comment is never counted: it is one person's passing remark.
  *   - Sources that name different tiers establish nothing.
  *   - One source is reported as "insufficient", not used.
@@ -117,14 +120,36 @@ export function priceSupport(brand: string, data: JobData): PriceSupport {
   // Every domain the brand is known to own: its recorded site, domains seen in the search results that
   // belong to it, and the official site Gemini named. All of them are one source, the brand's own.
   const brandOwned = [siteDomain, ...(data.audience?.brandDomains ?? []), data.profile?.officialDomain ?? ''].filter((d) => d !== '');
+  const ownText = (data.site?.pages ?? []).map((page) => page.text).join('\n');
   const bySite = new Map<string, PricePosition>();
+  const setAside: NonNullable<PriceSupport['setAside']> = [];
+  const setAsideSites = new Set<string>();
+  let independent = 0;
+  const tiersSeen = new Set<string>(); // every usable statement, including a second page of a site already counted
   for (const entry of [...counted].sort((a, b) => weight(a) - weight(b))) {
     const key = sourceSiteKey(entry.domain, brandOwned) || 'unknown';
-    if (!bySite.has(key)) bySite.set(key, entry);
+    if (setAsideSites.has(key)) continue;
+    // The brand's own site counts as one source. Anything else must be independent of the brand:
+    // press releases and company material are shown, but never counted.
+    const kind = entry.origin === 'brand_site' ? { kind: 'brand' as const } : sourceIndependence({ domain: entry.domain, url: entry.url, quote: entry.quote }, brandOwned, ownText);
+    if (kind.kind === 'company_material') {
+      setAsideSites.add(key);
+      setAside.push({ domain: entry.domain, url: entry.url, quote: entry.quote, tier: entry.tier, reason: kind.reason ?? 'company material' });
+      continue;
+    }
+    tiersSeen.add(entry.tier);
+    if (bySite.has(key)) continue;
+    if (kind.kind === 'independent') independent += 1;
+    bySite.set(key, entry);
   }
   const sources = [...bySite.values()];
-  if (new Set(counted.map((entry) => entry.tier)).size > 1) return { status: 'conflicting', tier: null, sources };
-  return { status: sources.length >= 2 ? 'established' : 'insufficient', tier: sources[0].tier, sources };
+  const aside = setAside.length > 0 ? { setAside } : {};
+  if (sources.length === 0) return { status: setAside.length > 0 ? 'not_independent' : 'none', tier: null, sources: [], ...aside };
+  if (tiersSeen.size > 1) return { status: 'conflicting', tier: null, sources, ...aside };
+  // Only the brand's own site is left. With company material set aside, say independence is missing;
+  // with nothing else found, it is simply one source.
+  if (independent === 0) return { status: setAside.length > 0 ? 'not_independent' : 'insufficient', tier: sources[0].tier, sources, ...aside };
+  return { status: sources.length >= 2 ? 'established' : 'insufficient', tier: sources[0].tier, sources, ...aside };
 }
 
 /** The brand's price position, only when two independent sources state it; otherwise null. */
@@ -242,6 +267,7 @@ function relevanceFields(coverage: NonNullable<JobData['siteAnalysis']>['coverag
     ...(coverage?.relevance ? { relevance: coverage.relevance } : {}),
     ...(coverage?.evidenceAbout ? { evidenceAbout: coverage.evidenceAbout } : {}),
     ...(coverage?.relevanceNote ? { relevanceNote: coverage.relevanceNote } : {}),
+    ...(coverage?.expertEvidence ? { expertEvidence: coverage.expertEvidence } : {}),
   };
 }
 

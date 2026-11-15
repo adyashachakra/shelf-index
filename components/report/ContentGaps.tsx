@@ -82,7 +82,9 @@ export function ContentGaps({ report }: { report: Report }) {
           </table>
           <p className="ui mt-3 max-w-3xl text-[0.88rem] text-ink-soft">
             A page counts as an answer only when it is about what the item asks: the same product, or a fact about the
-            whole brand. A statement about a different product, even from the same brand, does not.
+            whole brand. A statement about a different product, even from the same brand, does not. For a question about
+            what experts recommend, a page saying experts helped develop or test the products counts as touched on; only a
+            page saying experts recommend or endorse the brand counts as a clear answer.
           </p>
         </div>
       )}
@@ -92,8 +94,9 @@ export function ContentGaps({ report }: { report: Report }) {
           <h3 className="text-lg font-semibold">Questions left out because they are outside the brand&apos;s range</h3>
           <p className="ui mt-1 text-[0.9rem] text-ink-soft">
             A question is left out only when the brand&apos;s own pages show it does not sell that kind of product, or when
-            at least two independent websites describe it as sitting in a different price tier, and Gemini did not name
-            the brand when answering it.
+            at least two websites describe it as sitting in a different price tier, at least one of them independent of the
+            brand (a press release or other company material does not count), and Gemini did not name the brand when
+            answering it.
           </p>
           <ul className="mt-2 list-disc space-y-2 pl-5 text-[0.98rem]">
             {d.excluded.map((entry) => (
@@ -188,6 +191,18 @@ function PriceSupportNote({ report }: { report: Report }) {
       </p>
     );
   }
+  if (support.status === 'not_independent') {
+    return (
+      <div className="ui mt-2 text-[0.92rem] text-ink-soft">
+        <p>
+          <span className="font-semibold text-ink">Price position: not established. </span>
+          No source independent of the brand states it. The brand&apos;s own site and company material such as press
+          releases do not count as independent evidence, so no question was left out on price.
+        </p>
+        <SetAside support={support} illustrative={report.illustrative} />
+      </div>
+    );
+  }
   if (support.status === 'conflicting') {
     return (
       <p className="ui mt-2 text-[0.92rem] text-ink-soft">
@@ -215,6 +230,27 @@ function PriceSupportNote({ report }: { report: Report }) {
               {where(s)}
             </SourceLink>
             <span className="italic text-ink-soft"> &ldquo;{s.quote}&rdquo;</span>
+          </li>
+        ))}
+      </ul>
+      <SetAside support={support} illustrative={report.illustrative} />
+    </div>
+  );
+}
+
+/** Sources that were found but not counted, with the reason (press releases and other company material). */
+function SetAside({ support, illustrative }: { support: NonNullable<Report["contentGap"]["detail"]["priceSupport"]>; illustrative?: boolean }) {
+  if (!support.setAside || support.setAside.length === 0) return null;
+  return (
+    <div className="ui mt-2 text-[0.88rem] text-ink-soft">
+      <p>Found but not counted as independent evidence:</p>
+      <ul className="mt-1 list-disc pl-5">
+        {support.setAside.map((entry) => (
+          <li key={entry.url}>
+            <SourceLink url={entry.url} illustrative={illustrative}>
+              {entry.domain}
+            </SourceLink>{' '}
+            ({entry.reason}) <span className="italic">&ldquo;{entry.quote}&rdquo;</span>
           </li>
         ))}
       </ul>
