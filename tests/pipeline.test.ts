@@ -94,7 +94,7 @@ test('a full audit runs stage by stage to a finished report', async () => {
   assert.equal(report.model, 'gemini-3.5-flash-lite', 'the model name comes from what the API reported');
   assert.equal(report.methodology.modelConfigured, 'gemini-3.5-flash-lite');
   assert.ok(report.methodology.modelNote.includes('free tier'));
-  assert.equal(report.version, 5);
+  assert.equal(report.version, 6);
 });
 
 test('visibility: failed answers are missing data, range exclusions need evidence', () => {
@@ -167,7 +167,9 @@ test('content gap: relevance check, verified quotes, downgrade when a quote cann
   assert.deepEqual(g.detail.productLines.map((l) => l.name), ['Cleansers', 'Moisturisers', 'Sunscreen'], 'a product line with an unverifiable quote is dropped');
   const byId = new Map(g.detail.checklist.map((c) => [c.id, c]));
   assert.equal(g.detail.checklist.length, 8, '6 questions in range + 2 customer concerns');
-  assert.equal(byId.get('q1')?.level, 'clear');
+  // Patch 6: "best skincare brands" is a claim question and the quote is the brand describing itself, so a verdict of "clear" is "touched on, brand claim".
+  assert.deepEqual([byId.get('q1')?.level, byId.get('q1')?.brandClaim], ['partial', true]);
+  assert.match(byId.get('q1')?.relevanceNote ?? '', /brand's own statement on its website/);
   assert.deepEqual([byId.get('q2')?.level, byId.get('q2')?.downgraded], ['none', true]);
   assert.equal(byId.get('q3')?.geminiNamedBrand, true);
   assert.equal(byId.has('q8'), false, 'a brand is not marked down for failing to answer a question outside its price tier');
@@ -191,19 +193,23 @@ test('content gap: relevance check, verified quotes, downgrade when a quote cann
   assert.deepEqual([byId.get('q6')?.level, byId.get('q6')?.relevance], ['none', 'uncertain'], 'the model said "clear" but not how the quote relates to the question');
   assert.deepEqual([byId.get('c2')?.level, byId.get('c2')?.relevance, byId.get('c2')?.evidenceAbout], ['none', 'different_product', 'sunscreen'], 'a sunscreen quote does not answer a cleanser concern');
   assert.equal(byId.get('c2')?.quote, undefined, 'the unrelated quote is not shown as support');
-  assert.deepEqual([byId.get('q1')?.level, byId.get('q1')?.relevance], ['clear', 'brand_wide']);
+  assert.deepEqual([byId.get('q1')?.level, byId.get('q1')?.relevance], ['partial', 'brand_wide']);
+  // Patch 6: a question of fact ("how long does shipping take?") is not a claim question, so it is not marked as a brand claim.
+  assert.equal(byId.get('c1')?.brandClaim, undefined);
+  assert.equal(byId.get('q7')?.level, 'partial', 'q7 was clear before patch 6; "best clean or fragrance-free brands" asks for a claim');
+  assert.equal(byId.get('q7')?.brandClaim, true);
   assert.ok(report.warnings.some((w) => w.includes('could not be tied to the question')), 'the uncertain item is reported');
   const loggedCoverage = JSON.parse(coverageLine) as { different: string; uncertain: string };
   assert.deepEqual([loggedCoverage.different, loggedCoverage.uncertain], ['c2', 'q6'], 'ids only, never page text');
   // Product range: three lines confirmed, one candidate that could not be, and the real page count.
   assert.deepEqual([g.detail.productRange?.status, g.detail.productRange?.linesIdentified, g.detail.productRange?.unverified, g.detail.productRange?.pagesRead], ['identified', 3, 1, 6]);
-  // Left out of the score (q4: no verdict, q6: not tied to the question). Assessed: q1 q7 clear, c1 partial (0.5),
-  // q2 q3 c2 not addressed (3) -> 3.5 / 6 = 58. Same formula as before.
-  // (Had the sunscreen quote been accepted as a clear answer about the cleanser, this would be 2.5 / 6 = 42.)
+  // Left out of the score (q4: no verdict, q6: not tied to the question). Assessed: q1 q7 partial as brand claims (1),
+  // c1 partial (0.5), q2 q3 c2 not addressed (3) -> 4.5 / 6 = 75. Same formula as before. (Before patch 6, q1 and q7 were
+  // "clear" and this was 3.5 / 6 = 58; had the sunscreen quote been accepted as a clear answer, 2.5 / 6 = 42.)
   // Six pages across two sections is "medium"; two items were left out, so it drops to "low".
-  assert.deepEqual(g.metric.status === 'scored' && [g.metric.score, g.metric.confidence], [58, 'low']);
+  assert.deepEqual(g.metric.status === 'scored' && [g.metric.score, g.metric.confidence], [75, 'low']);
   assert.ok(g.metric.status === 'scored' && g.metric.confidenceReason.includes('2 of the 8 checklist items could not be assessed'));
-  assert.equal(g.detail.points, 3.5);
+  assert.equal(g.detail.points, 4.5);
 });
 
 test('claims: a verdict stands only when its quote is found in the source', () => {

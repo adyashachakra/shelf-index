@@ -250,7 +250,7 @@ export function applyExpertRule(input: { itemText: string; quote: string; outcom
     return {
       ...outcome,
       expertEvidence: shown,
-      note: "A named expert or organisation is quoted, on the brand's own page. This audit did not check the statement against any independent source.",
+      note: "A named expert or organisation is quoted, on the brand's own page.",
     };
   }
   return {
@@ -348,4 +348,75 @@ export function applyQuoteRules(input: { itemText: string; quote: string; outcom
     };
   }
   return outcome;
+}
+
+// ---------------------------------------------------------------------------------------------
+// The brand's own statement is a claim, not independent evidence.
+//
+// The content gap compares what shoppers ask with what the brand's OWN pages say. For a question of fact
+// ("how long does shipping take?", "are products sold in the UK?") the brand's page is the authority, so a
+// page can answer it clearly. For a question about whether a product is EFFECTIVE, SUITABLE, clinically
+// proven or recommended by experts ("which cleanser is best for oily skin?", "which brands do dermatologists
+// recommend?"), a brand describing itself shows what the brand CLAIMS. It does not establish the claim: this
+// audit reads no independent evidence at this step. Such an item is therefore at most "touched on", shown as
+// "Touched on, brand claim", whatever the page says, a named expert on the brand's page included. The brand's
+// own words are still shown, as its claim.
+//
+// Like the other quote rules this is a word list over the item's question, applied to the quote the
+// existing analysis already returned: no extra request, no change to any scoring formula. A question the list
+// does not recognise as a claim question keeps the verdict the analysis gave.
+// ---------------------------------------------------------------------------------------------
+
+export type ClaimKind = 'expert' | 'clinical' | 'effectiveness' | 'suitability';
+
+const CLINICAL_Q = /\b(?:clinical\w*|clinically|proven|proof|studies|study|trials?|dermatologist[- ]tested)\b/i;
+const EFFECTIVENESS_Q = /\b(?:work|works|worked|working|effective\w*|results?|efficacy|performance|perform\w*|reduces?|reduced|improves?|improved|treat\w*|heal\w*|repair\w*)\b/i;
+const SUITABILITY_Q = /\b(?:best|better|ideal|suit\w*|safe\w*|gentle|good|great|worth|top|recommend\w*|right for)\b/i;
+
+const CLAIM_NOUN: Record<ClaimKind, string> = {
+  expert: 'that experts recommend it',
+  clinical: 'its clinical performance',
+  effectiveness: 'that it is effective',
+  suitability: 'that it is the best or a suitable choice',
+};
+
+/** What kind of claim does this question ask about, or null when it asks for a fact the brand's pages can state. */
+export function claimKind(text: string): ClaimKind | null {
+  if (isExpertRecommendationQuestion(text)) return 'expert';
+  if (CLINICAL_Q.test(text)) return 'clinical';
+  if (EFFECTIVENESS_Q.test(text)) return 'effectiveness';
+  if (SUITABILITY_Q.test(text)) return 'suitability';
+  return null;
+}
+
+export type CheckedOutcome = RelevanceOutcome & { expertEvidence?: ExpertEvidence; brandClaim?: true };
+
+/**
+ * For a claim question, a verified quote from the brand's own page is the brand's claim: a "clear" verdict is
+ * lowered to "partial", and the item is marked as a brand claim whether it was clear or partial.
+ * Other verdicts, items with no verified quote, "not addressed" and "uncertain" items are returned as they were.
+ */
+export function applyFirstPartyRule(input: { itemText: string; quote: string; outcome: RelevanceOutcome & { expertEvidence?: ExpertEvidence } }): CheckedOutcome {
+  const { outcome, quote, itemText } = input;
+  if (quote === '' || outcome.level === 'none' || outcome.relevance === 'different_product' || outcome.relevance === 'uncertain') return outcome;
+  const kind = claimKind(itemText);
+  if (kind === null) return outcome;
+  const lowered = outcome.level === 'clear';
+  // An unnamed "dermatologist recommended" already says it is the brand's claim; saying it twice adds nothing.
+  const alreadySaid = outcome.expertEvidence === 'brand_claim';
+  const statement = `This is the brand's own statement on its website. It shows what the brand claims; it does not independently establish ${CLAIM_NOUN[kind]}.`;
+  const note = [outcome.note, alreadySaid ? '' : statement, lowered && !alreadySaid ? 'It counts as touched on, not as a clear answer.' : '']
+    .filter((part) => part !== undefined && part !== '')
+    .join(' ');
+  return { ...outcome, level: lowered ? 'partial' : outcome.level, brandClaim: true, note };
+}
+
+/**
+ * The whole chain applied to a verdict that passed the relevance check, in the order the audit applies it:
+ * the quote rules (general suitability, regional availability), the expert rule, then the brand-claim rule.
+ */
+export function applyAllRules(input: { itemText: string; quote: string; outcome: RelevanceOutcome }): CheckedOutcome {
+  const afterQuote = applyQuoteRules(input);
+  const afterExpert = applyExpertRule({ itemText: input.itemText, quote: input.quote, outcome: afterQuote });
+  return applyFirstPartyRule({ itemText: input.itemText, quote: input.quote, outcome: afterExpert });
 }

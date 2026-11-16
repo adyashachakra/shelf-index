@@ -18,7 +18,7 @@ function relevanceNote(item: ChecklistItem): string | null {
     return `${item.relevanceNote ?? 'The evidence could not be tied to the question.'} It is left out of the score, and the score's confidence is lowered.`;
   }
   if (item.relevance === 'indirect') return item.relevanceNote ?? 'The page is about a related product or point, not a direct answer.';
-  if (item.expertEvidence && item.relevanceNote) return item.relevanceNote;
+  if ((item.expertEvidence || item.brandClaim) && item.relevanceNote) return item.relevanceNote;
   return null;
 }
 
@@ -61,7 +61,10 @@ export function ContentGaps({ report }: { report: Report }) {
                   </td>
                   <td className="py-2.5 pr-4">{geminiColumn(item)}</td>
                   <td className="py-2.5">
-                    <span className={item.level === 'none' ? 'font-semibold' : ''}>{CLASS_TEXT[evidenceClass(item)]}</span>
+                    <span className={item.level === 'none' ? 'font-semibold' : ''}>
+                      {CLASS_TEXT[evidenceClass(item)]}
+                      {item.brandClaim && evidenceClass(item) === 'touched_on' ? ' \u2014 brand claim' : ''}
+                    </span>
                     {item.url ? (
                       <>
                         {': '}
@@ -83,9 +86,12 @@ export function ContentGaps({ report }: { report: Report }) {
           </table>
           <p className="ui mt-3 max-w-3xl text-[0.88rem] text-ink-soft">
             A page counts as an answer only when it is about what the item asks: the same product, or a fact about the
-            whole brand. A statement about a different product, even from the same brand, does not. For a question about
-            what experts recommend, a page saying experts helped develop or test the products counts as touched on; only a
-            page saying experts recommend or endorse the brand counts as a clear answer.
+            whole brand. A statement about a different product, even from the same brand, does not. The pages read here
+            are the brand&apos;s own. For a question of fact, such as where products are sold, a page can answer clearly.
+            For a question about effectiveness, suitability, clinical performance or what experts recommend, the
+            brand&apos;s own words show what the brand claims. They do not independently establish it, so the item counts
+            as touched on and is labelled as a brand claim, even when the page names an expert or a study. A page saying
+            experts only helped develop or test the products counts as touched on as well.
           </p>
         </div>
       )}

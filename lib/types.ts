@@ -276,6 +276,12 @@ export interface ChecklistItem {
   relevanceNote?: string;
   /** For a question about what experts recommend: what the quoted evidence shows about the experts. */
   expertEvidence?: ExpertEvidence;
+  /**
+   * For a question about effectiveness, suitability, clinical performance or what experts recommend: the
+   * quoted words are the brand's own statement. They show what the brand claims and do not independently
+   * establish it, so the item is at most "touched on" and is shown as "Touched on, brand claim".
+   */
+  brandClaim?: boolean;
 }
 
 /** direct: the same product. brand_wide: a fact about the whole brand. indirect: related but incomplete. */
@@ -506,7 +512,7 @@ export type OverallConfidence =
 
 export interface Report {
   /** 4 for new reports. Reports saved as 3 are still read: the fields added in 4 are optional. */
-  version: 2 | 3 | 4 | 5;
+  version: 2 | 3 | 4 | 5 | 6;
   id: string;
   /** True only for the bundled example with a fictional brand. */
   illustrative?: boolean;

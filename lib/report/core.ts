@@ -268,6 +268,7 @@ function relevanceFields(coverage: NonNullable<JobData['siteAnalysis']>['coverag
     ...(coverage?.evidenceAbout ? { evidenceAbout: coverage.evidenceAbout } : {}),
     ...(coverage?.relevanceNote ? { relevanceNote: coverage.relevanceNote } : {}),
     ...(coverage?.expertEvidence ? { expertEvidence: coverage.expertEvidence } : {}),
+    ...(coverage?.brandClaim ? { brandClaim: true } : {}),
   };
 }
 

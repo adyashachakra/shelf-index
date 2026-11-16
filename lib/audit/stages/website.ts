@@ -3,7 +3,7 @@ import { domainMatchesBrand, mentionsBrand } from '../../evidence/brand-match';
 import { cleanDomain, isSocialDomain } from '../../evidence/normalize';
 import { verifiedPriceTier } from '../../evidence/price';
 import { quoteAppearsIn } from '../../evidence/quotes';
-import { applyExpertRule, applyQuoteRules, assessRelevance } from '../../evidence/relevance';
+import { applyAllRules, assessRelevance } from '../../evidence/relevance';
 import { logEvent } from '../../log';
 import type { CoverageLevel, GeminiAnswer, QuoteRef, SitePage } from '../../types';
 import type { StageContext } from '../context';
@@ -205,15 +205,16 @@ export async function runWebsite(ctx: StageContext): Promise<'done' | 'continue'
             quote: ref?.quote ?? '',
             pageTitle: page?.title ?? '',
           });
-          // A page that only says a product suits a range of types does not name the best one for a need, and a
-          // notice about the visitor's location does not say where products are available.
-          const relevant = applyQuoteRules({ itemText: itemText.get(itemId) ?? '', quote: ref?.quote ?? '', outcome: assessed });
-          // For a question about what experts recommend, a quote about experts helping to make or test
-          // the products is not a recommendation: it is capped at "touched on".
-          const check = applyExpertRule({ itemText: itemText.get(itemId) ?? '', quote: ref?.quote ?? '', outcome: relevant });
+          // The quote rules, in order (see lib/evidence/relevance.ts): a page that only says a product suits a
+          // range of types does not name the best one for a need; a notice about the visitor's location does not
+          // say where products are available; experts who helped make a product do not recommend it; and for a
+          // question about effectiveness, suitability, clinical performance or expert recommendation the brand's
+          // own statement is a claim, at most "touched on".
+          const check = applyAllRules({ itemText: itemText.get(itemId) ?? '', quote: ref?.quote ?? '', outcome: assessed });
           const relevanceFields = {
             relevance: check.relevance,
             ...('expertEvidence' in check && check.expertEvidence ? { expertEvidence: check.expertEvidence } : {}),
+            ...(check.brandClaim ? { brandClaim: true } : {}),
             ...(check.evidenceAbout ? { evidenceAbout: check.evidenceAbout } : {}),
             ...(check.note ? { relevanceNote: check.note } : {}),
           };

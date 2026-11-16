@@ -73,11 +73,11 @@ const legacy: Report = {
 // earlier-version notice, and without anything the old report never held.
 function fixtureChecks(): [string, string, string[]][] {
   const out: [string, string, string[]][] = [];
-  for (const version of [2, 3, 4]) {
+  for (const version of [2, 3, 4, 5]) {
     const report = JSON.parse(readFileSync(new URL(`../fixtures/report-format-${version}.json`, import.meta.url), 'utf8')) as Report;
     const html = page(`format${version}`, <ReportView report={report} />);
     const needles = ['saved before the latest changes', 'nothing missing from it has been filled in', 'Single-audit estimate', report.brand];
-    if (version === 4) needles.push('Products identified in the pages read');
+    if (version >= 4) needles.push('Products identified in the pages read');
     if (version < 4) needles.push("Product lines found on the brand");
     out.push([`format${version}`, html, needles]);
     for (const absent of version < 4 ? ['Price position, supported by', 'Products identified in the pages read', 'Product range: partially assessed'] : []) {
@@ -120,7 +120,8 @@ const withNewRules: Report = {
         { id: 'c8', source: 'customer_concern', text: 'Which cleanser is best for combination or oily skin types?', level: 'partial', url: 'https://brand.example/faq', quote: 'suitable for a wide range of skin types', relevance: 'indirect', relevanceNote: 'The words quoted say the product suits a range of types. They do not say it is the best choice for the need asked about, so this counts as touched on, not as a clear answer.' },
         { id: 'c9', source: 'customer_concern', text: 'Are certain products available outside the United States or in Europe?', level: 'none', url: 'https://brand.example/new', quote: 'we have detected that you are shopping from a different location', relevance: 'indirect', relevanceNote: "The words quoted do not say where products are available. A notice about the visitor's location is not availability information. It counts as not addressed unless a page states actual regional availability." },
         { id: 'q9', source: 'category_question', text: 'Which skincare brands do dermatologists recommend most?', level: 'partial', url: 'https://brand.example/about', quote: 'The #1 dermatologist-recommended brand', relevance: 'indirect', expertEvidence: 'brand_claim', relevanceNote: "The brand's own page says experts recommend or endorse it, but the words quoted name no expert or organisation, and this audit did not verify the claim. It is shown as the brand's claim and counts as touched on, not as a clear answer.", geminiNamedBrand: false },
-        { id: 'q10', source: 'category_question', text: 'Which skincare brands do dermatologists recommend most?', level: 'clear', url: 'https://brand.example/about2', quote: 'Recommended by Dr. Jane Smith, dermatologist', relevance: 'brand_wide', expertEvidence: 'recommendation', relevanceNote: "A named expert or organisation is quoted, on the brand's own page. This audit did not check the statement against any independent source.", geminiNamedBrand: false },
+        { id: 'q10', source: 'category_question', text: 'Which skincare brands do dermatologists recommend most?', level: 'partial', url: 'https://brand.example/about2', quote: 'Recommended by Dr. Jane Smith, dermatologist', relevance: 'brand_wide', expertEvidence: 'recommendation', brandClaim: true, relevanceNote: "A named expert or organisation is quoted, on the brand's own page. This is the brand's own statement on its website. It shows what the brand claims; it does not independently establish that experts recommend it. It counts as touched on, not as a clear answer." },
+        { id: 'q11', source: 'category_question', text: 'What skincare brands are best for sensitive skin?', level: 'partial', url: 'https://brand.example/sensitive', quote: 'Our brand is a dermatologist recommended sensitive skincare brand.', relevance: 'brand_wide', brandClaim: true, relevanceNote: "This is the brand's own statement on its website. It shows what the brand claims; it does not independently establish that it is the best or a suitable choice. It counts as touched on, not as a clear answer." },
       ],
     },
   },
@@ -133,7 +134,7 @@ const checks: [string, string, string[]][] = [
   ['example', page('example', <ReportView report={EXAMPLE_REPORT} />), ['Illustrative example', 'Gemini API recommendation visibility', 'Between the lines', 'Prioritised fix list', 'Sources and methodology', 'Insufficient data', 'Single-audit estimate', 'Based on', 'Products identified in the pages read', 'not a verified inventory', 'about the mineral sunscreen', 'does not show that the brand has changed']],
   ['legacy', page('legacy', <ReportView report={legacy} />), ['Product lines found on the brand', 'Single-audit estimate', 'Touched on', 'Not addressed', 'saved before the latest changes']],
   ...fixtureChecks(),
-  ['newrules', page('newrules', <ReportView report={withNewRules} />), ['suits a range of types', 'is not availability information', 'counts as touched on, not as a clear answer', 'It is shown as the brand', 'A named expert or organisation is quoted', '1 customer or reviewer source (2 excerpts in total)']],
+  ['newrules', page('newrules', <ReportView report={withNewRules} />), ['suits a range of types', 'is not availability information', 'counts as touched on, not as a clear answer', 'It is shown as the brand', 'A named expert or organisation is quoted', 'Touched on \u2014 brand claim', 'does not independently establish that it is the best or a suitable choice', 'The pages read here are the brand', '1 customer or reviewer source (2 excerpts in total)']],
   ['setaside', page('setaside', <ReportView report={withSetAside} />), ['Price position: not established.', 'Found but not counted as independent evidence', 'a press release or company announcement', 'galderma.com']],
   ['empty', page('empty', <ReportView report={empty} />), ['Insufficient data', 'Could not be assessed', 'Overall confidence: Not stated']],
   ['notfound', page('notfound', <NotFound />), ['not found']],

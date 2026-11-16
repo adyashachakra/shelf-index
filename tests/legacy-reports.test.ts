@@ -3,7 +3,7 @@
 //
 // The fixtures in tests/fixtures are REAL engine output: each was produced by running the audit engine
 // of the release that wrote that format (format 2: the first V1.1 preview; format 3: patch 2; format 4:
-// patch 3) over the simulated services, then saved unchanged. They are not hand-written.
+// patch 3; format 5: patches 4 and 5) over the simulated services, then saved unchanged. They are not hand-written.
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test, { after, before } from 'node:test';
@@ -34,13 +34,13 @@ const fixture = (version: number) => JSON.parse(fixtureText(version)) as Report;
 const idContext = (id: string) => ({ params: Promise.resolve({ id }) });
 const fake = (id: string, version: number) => JSON.stringify({ id, version, brand: 'Cetaphil' });
 
-test('the report format is 5; formats 5, 4, 3 and 2 can be opened', () => {
-  assert.equal(REPORT_FORMAT_VERSION, 5);
-  assert.deepEqual([...READABLE_REPORT_VERSIONS], [5, 4, 3, 2]);
+test('the report format is 6; formats 6, 5, 4, 3 and 2 can be opened', () => {
+  assert.equal(REPORT_FORMAT_VERSION, 6);
+  assert.deepEqual([...READABLE_REPORT_VERSIONS], [6, 5, 4, 3, 2]);
 });
 
-test('the fixtures are what they claim to be: real saved reports of formats 2, 3 and 4', () => {
-  for (const version of [2, 3, 4]) {
+test('the fixtures are what they claim to be: real saved reports of formats 2, 3, 4 and 5', () => {
+  for (const version of [2, 3, 4, 5]) {
     const report = fixture(version);
     assert.equal(report.version, version);
     assert.match(report.id, /^[0-9a-f]{24}$/);
@@ -48,7 +48,7 @@ test('the fixtures are what they claim to be: real saved reports of formats 2, 3
   }
 });
 
-for (const version of [2, 3, 4]) {
+for (const version of [2, 3, 4, 5]) {
   test(`a real format ${version} report opens, and what the API returns is exactly what was saved`, async () => {
     const saved = fixture(version);
     await cmd('SET', `si:report:v${version}:${saved.id}`, fixtureText(version));
@@ -85,6 +85,17 @@ test('format 2 and 3 reports are not given evidence they never had', async () =>
   }
 });
 
+test('a format 5 report is not given a brand-claim reading it never had', async () => {
+  // Format 5 (patches 4 and 5) marked unnamed expert claims but had no general "brand claim" rule: an item it
+  // recorded as "clear" for a question about what is best stays "clear" when the report is opened.
+  const saved = fixture(5);
+  await cmd('SET', `si:report:v5:${saved.id}`, fixtureText(5));
+  const loaded = (await loadReport(saved.id)) as Report;
+  assert.ok(loaded.contentGap.detail.checklist.some((item) => item.level === 'clear'), 'the fixture records clear verdicts');
+  assert.ok(loaded.contentGap.detail.checklist.every((item) => !('brandClaim' in item)), 'no brand-claim marking invented');
+  assert.equal(JSON.stringify(loaded), JSON.stringify(saved));
+});
+
 test('format 1 (V1.0) reports are not read here, and the API says not found', async () => {
   await cmd('SET', 'si:report:v1:ffffffffffffffffffffffff', fake('ffffffffffffffffffffffff', 1));
   assert.equal(await loadReport('ffffffffffffffffffffffff'), null);
@@ -93,18 +104,19 @@ test('format 1 (V1.0) reports are not read here, and the API says not found', as
   assert.equal(await loadReport('cccccccccccccccccccccccc'), null, 'an unknown id');
 });
 
-test('a new report is stored under format 5 and found first; older cached reports are not offered for a new audit', async () => {
-  for (const version of [4, 3, 2]) {
+test('a new report is stored under format 6 and found first; older cached reports are not offered for a new audit', async () => {
+  for (const version of [5, 4, 3, 2]) {
     await cmd('SET', `si:report:v${version}:dddddddddddddddddddddd0${version}`, fake(`dddddddddddddddddddddd0${version}`, version));
     await cmd('SET', `si:cache:v${version}:skincare:cetaphil`, `dddddddddddddddddddddd0${version}`);
   }
   assert.equal(await findCachedReportId('skincare:cetaphil'), null, 'a repeat audit must run again under the new rules');
 
-  await saveReport({ id: 'eeeeeeeeeeeeeeeeeeeeeeee', version: 5 } as unknown as Report, 'skincare:cetaphil');
-  assert.equal(await cmd('EXISTS', 'si:report:v5:eeeeeeeeeeeeeeeeeeeeeeee'), 1);
+  await saveReport({ id: 'eeeeeeeeeeeeeeeeeeeeeeee', version: 6 } as unknown as Report, 'skincare:cetaphil');
+  assert.equal(await cmd('EXISTS', 'si:report:v6:eeeeeeeeeeeeeeeeeeeeeeee'), 1);
   assert.equal(await findCachedReportId('skincare:cetaphil'), 'eeeeeeeeeeeeeeeeeeeeeeee');
   assert.equal((await loadReport('eeeeeeeeeeeeeeeeeeeeeeee'))?.id, 'eeeeeeeeeeeeeeeeeeeeeeee');
   // The older reports are still readable alongside it.
+  assert.equal((await loadReport('dddddddddddddddddddddd05'))?.id, 'dddddddddddddddddddddd05');
   assert.equal((await loadReport('dddddddddddddddddddddd04'))?.id, 'dddddddddddddddddddddd04');
   assert.equal((await loadReport('dddddddddddddddddddddd02'))?.id, 'dddddddddddddddddddddd02');
 });

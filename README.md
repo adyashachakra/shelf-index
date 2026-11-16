@@ -395,6 +395,24 @@ These three corrections pass the simulated tests. Their own live run is the next
   brand", "not recommended by dermatologists", "no dermatologist endorses it") is read as a denial and
   counts as "not addressed", never as a recommendation; denials worded in ways the list does not know
   are not caught. Reports already saved are shown as they were and are not rewritten.
+- Patch 6 (a brand's own statement is a claim, not independent evidence). For a question about
+  effectiveness, suitability ("best for", "safe for"), clinical performance or what experts recommend, a
+  quote from the brand's own website shows what the brand claims and does not independently establish it,
+  so the item is at most "touched on" and is labelled "Touched on, brand claim" with a note saying so. This
+  includes a named dermatologist or organisation quoted on the brand's page: patch 5 let that count as a
+  clear answer, patch 6 does not (the name is still recognised and shown). Questions of fact (where
+  products are sold, shipping, returns, ingredients) can still be answered clearly from the brand's own
+  pages. The rule is a word list over the question, applied to the quote the existing site-analysis request
+  already returned: no new request, no new service, and the content gap formula is unchanged. Trade-offs:
+  an item on a claim question can score at best half a point of gap, so a brand cannot bring such an item to
+  zero by publishing more of its own content, and the content gap score is higher than under patch 5 for the
+  same pages (in the simulated audit used in the tests, from 58 to 75; in the latest real Cetaphil audit the
+  one affected item would move the score from 65 to 70). Scores from before and after patch 6 are therefore
+  not directly comparable. The labelling does not say the claim is false, only that this audit did not
+  check it. Known limits: a question the word list does not recognise as a claim question keeps the verdict the
+  analysis gave (for example "does it dry out my skin?"); and the rule does not look for independent
+  evidence, it only stops the brand's own page from being counted as if it were. Reports saved before
+  patch 6 are shown as they were, with the earlier-version notice.
 - Whether content gap severity is stable from run to run. The two Cetaphil audits, about two
   hours apart on the same model, gave 55 and 78. The formula, the instruction for this step and
   the code that fetches the brand's pages were the same in both. The search returned different
@@ -423,10 +441,11 @@ These three corrections pass the simulated tests. Their own live run is the next
 | Patch 3: two independent price sources and registrable domains, the four evidence classes (including a different-product quote), items left out of the score, the three product-range states | 19 + 5 tests | Real code, no services needed |
 | Patch 4: independence of price sources (press releases, parent-company material, brand site plus one independent source), expert collaboration vs endorsement vs recommendation | 13 tests | Real code, no services needed |
 | Patch 5: the cleanser, availability and dermatologist cases with the real quotes, source counts (unique sources versus excerpts), the builder credit spelling | 19 tests (including denied recommendations), plus a footer check on every rendered page | Real code, no services needed |
-| Saved reports across format changes: real format 2, 3 and 4 reports open and the API returns exactly what was saved; nothing missing is invented; format 1 is not read; old cached reports are not reused | 8 tests | Real Redis, real route handler |
+| Patch 6: the brand-claim rule for the effectiveness, suitability, clinical and expert cases, questions of fact unaffected, earlier rules unchanged, scoring formula unchanged, no network in the rule | 15 tests (8 of them fail if the rule is switched off) | Real code, no services needed |
+| Saved reports across format changes: real format 2, 3, 4 and 5 reports open and the API returns exactly what was saved; nothing missing is invented; format 1 is not read; old cached reports are not reused | 10 tests | Real Redis, real route handler |
 | TypeScript, engine and API routes | Strict compile, zero errors | Real compiler |
 | TypeScript, pages and components | Strict compile with stand-in typings for React, Next.js and Recharts | Partial locally; the real check is the Vercel build |
-| Every page renders: the example, an all-"insufficient data" report, a report produced by the engine in the tests, and real saved reports of formats 2, 3 and 4 | Server-rendered to HTML and screenshotted at desktop and phone widths | Stand-ins for Next.js and Recharts |
+| Every page renders: the example, an all-"insufficient data" report, a report produced by the engine in the tests, and real saved reports of formats 2, 3, 4 and 5 | Server-rendered to HTML and screenshotted at desktop and phone widths | Stand-ins for Next.js and Recharts |
 
 To run the tests yourself (optional, needs Node.js and a local Redis server on port 6399):
 `npm install`, then `npm test`.

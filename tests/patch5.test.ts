@@ -1,7 +1,7 @@
 // Patch 5: four checks on how evidence is classified and counted, and the builder credit.
 //   1. "Which cleanser is best for combination or oily skin?" is not answered by "suitable for a wide range of skin types".
 //   2. "Available outside the United States or in Europe?" is not answered by a notice about the visitor's location.
-//   3. A brand's own "dermatologist recommended" is the brand's claim; a named expert or organisation can be a clear answer.
+//   3. A brand's own "dermatologist recommended" is the brand's claim (patch 6 extends this to a named expert on the brand's own page).
 //   4. The count of sources shown with a recommendation is the count of unique sources, and the text beside it never gives another.
 //   5. The builder credit reads "Built by Adyasha Chakra" and the old spelling appears nowhere in the project.
 // No network and no storage. The quotes below are the ones from the first V1.1 Cetaphil report.
@@ -112,17 +112,22 @@ test("a brand's own 'dermatologist recommended' is its claim, shown as touched o
   }
 });
 
-test('a named dermatologist or organisation recommending the brand can be a clear answer, still described as stated on the brand\'s page', () => {
+test('a named dermatologist or organisation is recognised as named; since patch 6 it is still the brand\'s page speaking, so touched on', () => {
   for (const quote of [
     'Recommended by Dr. Jane Smith, board-certified dermatologist',
     'Recommended by the American Academy of Dermatology',
     'Accepted by the Skin Cancer Foundation, an organisation of dermatologists',
   ]) {
-    const result = relevance.applyExpertRule({ itemText: Q6, quote, outcome: outcome('clear') });
-    assert.equal(result.level, 'clear', quote);
-    assert.ok(result.expertEvidence === 'recommendation' || result.expertEvidence === 'endorsement', quote);
+    // The expert rule still tells a named source from an unnamed one...
+    const named = relevance.applyExpertRule({ itemText: Q6, quote, outcome: outcome('clear') });
+    assert.equal(named.level, 'clear', quote);
+    assert.ok(named.expertEvidence === 'recommendation' || named.expertEvidence === 'endorsement', quote);
+    // ...but the brand-claim rule (patch 6) then caps it: a name on the brand's own page is not independent evidence.
+    const result = relevance.applyAllRules({ itemText: Q6, quote, outcome: outcome('clear') });
+    assert.equal(result.level, 'partial', quote);
+    assert.equal(result.brandClaim, true, quote);
     assert.match(result.note ?? '', /on the brand's own page/);
-    assert.match(result.note ?? '', /did not check the statement against any independent source/);
+    assert.match(result.note ?? '', /does not independently establish that experts recommend it/);
     assert.doesNotMatch(result.note ?? '', /independently verified|verified independently/i);
   }
 });

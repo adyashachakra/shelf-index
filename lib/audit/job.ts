@@ -140,6 +140,7 @@ export interface SiteAnalysisData {
     evidenceAbout?: string;
     relevanceNote?: string;
     expertEvidence?: ExpertEvidence;
+    brandClaim?: boolean;
   }[];
   /** Product lines the analysis proposed that could not be confirmed against a page (not shown). */
   productLinesUnverified?: number;
