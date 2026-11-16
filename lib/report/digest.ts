@@ -36,8 +36,14 @@ export function describeEvidenceBase(ids: string[], index: EvidenceIndex): strin
   const gemini = unique.filter((id) => index.family(id) === 'gemini').length;
   const site = unique.filter((id) => index.family(id) === 'site').length;
   const other = unique.filter((id) => index.family(id) === 'source').length;
+  const audienceExcerpts = unique.filter((id) => index.family(id) === 'audience').length;
   const parts: string[] = [];
-  if (audience > 0) parts.push(plural(audience, 'customer or reviewer source', 'customer or reviewer sources'));
+  // Sources are counted by thread, page or video, not by excerpt: two comments under one video are one source.
+  // When there are more excerpts than sources, both numbers are shown so the two can never look like a conflict.
+  if (audience > 0) {
+    const excerpts = audienceExcerpts > audience ? ` (${audienceExcerpts} excerpts in total)` : '';
+    parts.push(`${plural(audience, 'customer or reviewer source', 'customer or reviewer sources')}${excerpts}`);
+  }
   if (gemini > 0) parts.push(plural(gemini, 'Gemini answer', 'Gemini answers'));
   if (site > 0) parts.push(plural(site, "page of the brand's own site", "pages of the brand's own site"));
   if (other > 0) parts.push(plural(other, 'other web source', 'other web sources'));

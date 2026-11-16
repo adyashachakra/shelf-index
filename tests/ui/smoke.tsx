@@ -107,12 +107,33 @@ const withSetAside: Report = {
   },
 };
 
+// The three new rules as a reader sees them: each note must be displayed next to its item.
+const withNewRules: Report = {
+  ...EXAMPLE_REPORT,
+  illustrative: false,
+  contentGap: {
+    ...EXAMPLE_REPORT.contentGap,
+    detail: {
+      ...EXAMPLE_REPORT.contentGap.detail,
+      checklist: [
+        ...EXAMPLE_REPORT.contentGap.detail.checklist,
+        { id: 'c8', source: 'customer_concern', text: 'Which cleanser is best for combination or oily skin types?', level: 'partial', url: 'https://brand.example/faq', quote: 'suitable for a wide range of skin types', relevance: 'indirect', relevanceNote: 'The words quoted say the product suits a range of types. They do not say it is the best choice for the need asked about, so this counts as touched on, not as a clear answer.' },
+        { id: 'c9', source: 'customer_concern', text: 'Are certain products available outside the United States or in Europe?', level: 'none', url: 'https://brand.example/new', quote: 'we have detected that you are shopping from a different location', relevance: 'indirect', relevanceNote: "The words quoted do not say where products are available. A notice about the visitor's location is not availability information. It counts as not addressed unless a page states actual regional availability." },
+        { id: 'q9', source: 'category_question', text: 'Which skincare brands do dermatologists recommend most?', level: 'partial', url: 'https://brand.example/about', quote: 'The #1 dermatologist-recommended brand', relevance: 'indirect', expertEvidence: 'brand_claim', relevanceNote: "The brand's own page says experts recommend or endorse it, but the words quoted name no expert or organisation, and this audit did not verify the claim. It is shown as the brand's claim and counts as touched on, not as a clear answer.", geminiNamedBrand: false },
+        { id: 'q10', source: 'category_question', text: 'Which skincare brands do dermatologists recommend most?', level: 'clear', url: 'https://brand.example/about2', quote: 'Recommended by Dr. Jane Smith, dermatologist', relevance: 'brand_wide', expertEvidence: 'recommendation', relevanceNote: "A named expert or organisation is quoted, on the brand's own page. This audit did not check the statement against any independent source.", geminiNamedBrand: false },
+      ],
+    },
+  },
+  fixes: [{ ...EXAMPLE_REPORT.fixes[0], evidenceBase: '1 customer or reviewer source (2 excerpts in total)' }],
+};
+
 const checks: [string, string, string[]][] = [
-  ['home', page('home', <HomePage />), ['Run audit', 'Brand name', 'Example report', 'Built by Adya Chakra']],
+  ['home', page('home', <HomePage />), ['Run audit', 'Brand name', 'Example report', 'Built by Adyasha Chakra']],
   ['privacy', page('privacy', <PrivacyPage />), ['human reviewers', 'Hobby plan', 'YouTube Terms of Service', 'Google Privacy Policy']],
   ['example', page('example', <ReportView report={EXAMPLE_REPORT} />), ['Illustrative example', 'Gemini API recommendation visibility', 'Between the lines', 'Prioritised fix list', 'Sources and methodology', 'Insufficient data', 'Single-audit estimate', 'Based on', 'Products identified in the pages read', 'not a verified inventory', 'about the mineral sunscreen', 'does not show that the brand has changed']],
   ['legacy', page('legacy', <ReportView report={legacy} />), ['Product lines found on the brand', 'Single-audit estimate', 'Touched on', 'Not addressed', 'saved before the latest changes']],
   ...fixtureChecks(),
+  ['newrules', page('newrules', <ReportView report={withNewRules} />), ['suits a range of types', 'is not availability information', 'counts as touched on, not as a clear answer', 'It is shown as the brand', 'A named expert or organisation is quoted', '1 customer or reviewer source (2 excerpts in total)']],
   ['setaside', page('setaside', <ReportView report={withSetAside} />), ['Price position: not established.', 'Found but not counted as independent evidence', 'a press release or company announcement', 'galderma.com']],
   ['empty', page('empty', <ReportView report={empty} />), ['Insufficient data', 'Could not be assessed', 'Overall confidence: Not stated']],
   ['notfound', page('notfound', <NotFound />), ['not found']],
@@ -133,6 +154,15 @@ for (const [name, html, needles] of checks) {
       failed = true;
       console.error(`MISSING in ${name}: ${needle}`);
     }
+  }
+  // The builder credit is in the root layout, so it must be on every page, spelled correctly.
+  if (!html.includes('Built by Adyasha Chakra')) {
+    failed = true;
+    console.error(`MISSING in ${name}: Built by Adyasha Chakra`);
+  }
+  if (/Adya\s+Chakra/.test(html)) {
+    failed = true;
+    console.error(`OLD SPELLING in ${name}`);
   }
   console.log(`${name}: ${html.length} chars`);
 }

@@ -281,8 +281,12 @@ export interface ChecklistItem {
 /** direct: the same product. brand_wide: a fact about the whole brand. indirect: related but incomplete. */
 export type EvidenceRelevance = 'direct' | 'brand_wide' | 'indirect' | 'different_product' | 'uncertain';
 /** What a reader is shown for a checklist item. */
-/** What a quote shows about experts: they recommend the brand, endorse it, or only worked with it. */
-export type ExpertEvidence = 'recommendation' | 'endorsement' | 'collaboration';
+/**
+ * What a quote shows about experts: a named expert or organisation recommends or endorses the brand,
+ * experts only worked with it, or the brand's own page claims experts recommend it without naming
+ * anyone (brand_claim, shown as the brand's claim and never as an independently verified endorsement).
+ */
+export type ExpertEvidence = 'recommendation' | 'endorsement' | 'collaboration' | 'brand_claim';
 export type EvidenceClass = 'clear' | 'touched_on' | 'not_addressed' | 'uncertain';
 
 export type PriceTier = 'budget' | 'premium';

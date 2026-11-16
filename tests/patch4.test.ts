@@ -183,10 +183,12 @@ test('the q6 case from the live audit: working with dermatologists is touched on
   assert.equal(relevance.isLeftOut(result), false, 'it is scored as touched on, not left out');
 });
 
-test('recommendation and endorsement stay clear; no reference to experts cannot be tied to the question', () => {
-  const rec = relevance.applyExpertRule({ itemText: Q6, quote: 'The #1 dermatologist-recommended cleanser brand', outcome: outcome('clear') });
+test('a recommendation or endorsement stays clear only when it names who gives it (patch 5); no reference to experts cannot be tied to the question', () => {
+  // Patch 4 kept these two as clear. Patch 5 reads a recommendation with nobody named as the brand's own claim:
+  // see tests/patch5.test.ts for the full set of cases.
+  const rec = relevance.applyExpertRule({ itemText: Q6, quote: 'Recommended by the American Academy of Dermatology', outcome: outcome('clear') });
   assert.deepEqual([rec.level, rec.relevance, rec.expertEvidence], ['clear', 'brand_wide', 'recommendation']);
-  const end = relevance.applyExpertRule({ itemText: Q6, quote: 'Approved by dermatologists for sensitive skin', outcome: outcome('clear', 'direct') });
+  const end = relevance.applyExpertRule({ itemText: Q6, quote: 'Approved by Dr. Jane Smith, dermatologist, for sensitive skin', outcome: outcome('clear', 'direct') });
   assert.deepEqual([end.level, end.relevance, end.expertEvidence], ['clear', 'direct', 'endorsement']);
   const none = relevance.applyExpertRule({ itemText: Q6, quote: 'Clinically proven to hydrate for 48 hours', outcome: outcome('clear') });
   assert.deepEqual([none.level, none.relevance], ['none', 'uncertain']);

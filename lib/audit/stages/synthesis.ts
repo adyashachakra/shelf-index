@@ -1,5 +1,5 @@
 import 'server-only';
-import { asHypothesis, overclaims, stripSourceCounts, withoutOverclaim } from '../../evidence/overclaim';
+import { asHypothesis, overclaims, stripSourceCounts, withoutOverclaim, withoutSourceCounts } from '../../evidence/overclaim';
 import { normalizeForMatch } from '../../evidence/quotes';
 import { computeCore } from '../../report/core';
 import { buildDigest, buildEvidenceIndex, describeEvidenceBase, siteStatements } from '../../report/digest';
@@ -120,11 +120,11 @@ export async function runSynthesis(ctx: StageContext): Promise<'done' | 'continu
         action: fix.action,
         // "Why" may only describe the evidence. A cause or a business outcome is not evidence.
         // The count of sources is shown from the code's own count ("Rests on"), never from the model's.
-        why: withoutOverclaim(stripSourceCounts(fix.why), 'The explanation written for this recommendation claimed more than the evidence shows, so it is not displayed. Read the sources listed here before acting on it.'),
+        why: withoutOverclaim(withoutSourceCounts(fix.why), 'The explanation written for this recommendation claimed more than the evidence shows, so it is not displayed. Read the sources listed here before acting on it.'),
         priority: fix.priority,
         effort: fix.effort,
         // Shown only as a hypothesis, never as a result.
-        expectedImpact: asHypothesis(stripSourceCounts(fix.expected_impact)),
+        expectedImpact: asHypothesis(withoutSourceCounts(fix.expected_impact)),
         evidenceIds: ids,
         evidenceBase: base,
       });

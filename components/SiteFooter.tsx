@@ -5,7 +5,7 @@ export function SiteFooter() {
     <footer className="no-print mt-24 border-t border-rule bg-surface">
       <div className="ui mx-auto max-w-5xl px-5 py-10 text-[0.95rem] text-ink-soft sm:px-8">
         <p className="text-ink">
-          Built by Adya Chakra.{' '}
+          Built by Adyasha Chakra.{' '}
           <a href="https://www.linkedin.com/in/adyashachakra" rel="noopener noreferrer" target="_blank">
             LinkedIn
           </a>{' '}

@@ -62,10 +62,15 @@ export function withoutOverclaim(text: string, fallback: string): string {
 // Every count of sources shown in a report is therefore made in code, and the model's own
 // "across N sources" phrases are removed from its sentences.
 const NUMBER = '(?:one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|several|multiple|many|\\d+)';
+// What the model counts as a "source" is not what the report counts. It said "two sources" for two comments
+// under one video, which the report counts as one source. So these nouns are covered as well as "sources".
+const SOURCE_NOUN = '(?:sources?|threads?|discussions?|posts?|videos?|pages?|reviews?|articles?|websites?|sites?|excerpts?|comments?)';
+const COUNTED = `${NUMBER}\\s+(?:(?:separate|different|distinct|independent|customer|reviewer|audience|cited|unique)\\s+)*${SOURCE_NOUN}\\b`;
 const SOURCE_COUNT = new RegExp(
-  `,?\\s*(?:as\\s+(?:reported|seen|noted|mentioned)\\s+)?(?:across|in|from|by|over)\\s+(?:at\\s+least\\s+|about\\s+|around\\s+)?${NUMBER}\\s+(?:(?:separate|different|distinct|independent|customer|reviewer|audience|cited)\\s+)*sources?\\b`,
+  `,?\\s*(?:as\\s+(?:reported|seen|noted|mentioned)\\s+)?(?:across|in|from|by|over|among|between|within|on)\\s+(?:at\\s+least\\s+|about\\s+|around\\s+)?${COUNTED}`,
   'gi',
 );
+const ANY_SOURCE_COUNT = new RegExp(`\\b(?:at\\s+least\\s+|about\\s+|around\\s+)?${COUNTED}`, 'i');
 
 /** Remove "across N sources" style counts written by the model. The report shows its own count. */
 export function stripSourceCounts(text: string): string {
@@ -74,4 +79,17 @@ export function stripSourceCounts(text: string): string {
     .replace(/\s+([.,;:])/g, '$1')
     .replace(/\s{2,}/g, ' ')
     .trim();
+}
+
+/**
+ * Remove the model's counts of sources, then drop any sentence that still states one (for example
+ * "Two sources report ..." at the start of a sentence, which cannot be cut out without breaking the
+ * grammar). The only count a reader sees is the one the code makes ("Rests on: ..."), so the text beside it
+ * can never disagree with it. Returns "" when nothing is left.
+ */
+export function withoutSourceCounts(text: string): string {
+  const stripped = stripSourceCounts(text);
+  return sentencesOf(stripped)
+    .filter((sentence) => !ANY_SOURCE_COUNT.test(sentence))
+    .join(' ');
 }

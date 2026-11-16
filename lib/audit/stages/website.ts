@@ -3,7 +3,7 @@ import { domainMatchesBrand, mentionsBrand } from '../../evidence/brand-match';
 import { cleanDomain, isSocialDomain } from '../../evidence/normalize';
 import { verifiedPriceTier } from '../../evidence/price';
 import { quoteAppearsIn } from '../../evidence/quotes';
-import { applyExpertRule, assessRelevance } from '../../evidence/relevance';
+import { applyExpertRule, applyQuoteRules, assessRelevance } from '../../evidence/relevance';
 import { logEvent } from '../../log';
 import type { CoverageLevel, GeminiAnswer, QuoteRef, SitePage } from '../../types';
 import type { StageContext } from '../context';
@@ -196,7 +196,7 @@ export async function runWebsite(ctx: StageContext): Promise<'done' | 'continue'
           }
           // Is the evidence about what the item asks about? A verdict that fails this check takes
           // the level "none"; a related-but-indirect one is capped at "partial".
-          const relevant = assessRelevance({
+          const assessed = assessRelevance({
             itemText: itemText.get(itemId) ?? '',
             level: found.level,
             relation: found.relation,
@@ -205,6 +205,9 @@ export async function runWebsite(ctx: StageContext): Promise<'done' | 'continue'
             quote: ref?.quote ?? '',
             pageTitle: page?.title ?? '',
           });
+          // A page that only says a product suits a range of types does not name the best one for a need, and a
+          // notice about the visitor's location does not say where products are available.
+          const relevant = applyQuoteRules({ itemText: itemText.get(itemId) ?? '', quote: ref?.quote ?? '', outcome: assessed });
           // For a question about what experts recommend, a quote about experts helping to make or test
           // the products is not a recommendation: it is capped at "touched on".
           const check = applyExpertRule({ itemText: itemText.get(itemId) ?? '', quote: ref?.quote ?? '', outcome: relevant });

@@ -123,7 +123,7 @@ export default function PrivacyPage() {
       <p className="mt-4">
         If a report quotes something you wrote and you would like it removed before it expires, or you have a question
         about this page, contact{' '}
-        <External href="https://www.linkedin.com/in/adyashachakra">Adya Chakra on LinkedIn</External>.
+        <External href="https://www.linkedin.com/in/adyashachakra">Adyasha Chakra on LinkedIn</External>.
       </p>
     </div>
   );

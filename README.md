@@ -7,7 +7,7 @@ report that compares three things: how Google's Gemini model recommends the bran
 people say about it, and whether the brand's own website answers what shoppers ask. Every
 finding links to the evidence behind it.
 
-Built by [Adya Chakra](https://www.linkedin.com/in/adyashachakra).
+Built by [Adyasha Chakra](https://www.linkedin.com/in/adyashachakra).
 
 > **Status: V1, live.** The site is deployed and has completed a real audit end to end.
 > See [What was tested](#what-was-tested) for exactly what is proven live and what is only simulated.
@@ -142,9 +142,18 @@ Not addressed = 1 point, partly = 0.5, clearly = 0.
   is about a different product: a lotion quote does not answer a cleanser question, even from the
   same brand) and *uncertain* (the link cannot be confirmed). Only direct and brand-wide evidence
   can earn "clearly". For a question about what experts recommend ("which brands do dermatologists
-  recommend?"), the quote must show experts *recommending or endorsing* the brand. A quote saying
-  experts helped make or test the products (*collaboration*) is only "touched on", and a quote that
-  does not mention experts at all is uncertain. Evidence about another product is "not addressed" (1 point), so it never lowers the
+  recommend?"), the quote must show experts *recommending or endorsing* the brand **and name who does**
+  (a named person such as "Dr. ..." or an organisation such as an academy, association or foundation).
+  The brand's own "dermatologist recommended" with nobody named is the brand's *claim*: it is shown as
+  that, never as an independently verified endorsement, and counts as "touched on". Even a named
+  expert is quoted from the brand's own page, and the report says the audit did not check it against
+  an independent source. A quote saying experts helped make or test the products (*collaboration*)
+  is also only "touched on", and a quote that does not mention experts at all is uncertain. Two more
+  quote checks work the same way (word lists applied to the quote the analysis already returned, no
+  extra request): for a "which is best for ..." question, a quote that only says the product *suits a
+  range of types* is "touched on", not a clear answer; for an availability question ("available
+  outside the United States or in Europe?"), a quote must say where products are available, and a
+  notice about the visitor's location counts as "not addressed". Evidence about another product is "not addressed" (1 point), so it never lowers the
   gap. An *uncertain* item, and an item for which the analysis returned no verdict at all, is **left out of
   the content gap score** and the score's confidence is lowered one level, with a warning in the report: a
   missing or incomplete model answer is not proof that the site fails to address the question. The formula is
@@ -376,6 +385,14 @@ These three corrections pass the simulated tests. Their own live run is the next
 - Patch 4 (independent-source rule for price tiers, expert collaboration vs endorsement vs
   recommendation, reading of format 2 reports). Tested with simulated services and with real
   saved reports of formats 2, 3 and 4; the live Cetaphil result under these rules has not been run.
+- Patch 5 (best-for questions answered only by general suitability, availability questions answered
+  by a location notice, a brand's own "dermatologist recommended" claim versus a named expert, source
+  counts in recommendations, the corrected builder credit). Tested with the real quotes from the first
+  V1.1 report and with simulated services; no live audit has run under these rules. Known limits: the
+  rules are word lists, so a phrasing they do not know is left as the analysis judged it (for example a
+  named expert organisation whose name contains no expert word is read as no expert reference and left
+  out of the score, the safe direction), and a negated quote ("doctors do not recommend ...") would
+  still read as a recommendation. Reports already saved are shown as they were and are not rewritten.
 - Whether content gap severity is stable from run to run. The two Cetaphil audits, about two
   hours apart on the same model, gave 55 and 78. The formula, the instruction for this step and
   the code that fetches the brand's pages were the same in both. The search returned different
@@ -403,6 +420,7 @@ These three corrections pass the simulated tests. Their own live run is the next
 | Evidence rules: price-tier relevance in every category, quotes about the brand, brand capitalisation, graded patterns, wording that overclaims | 12 tests | Real code, no services needed |
 | Patch 3: two independent price sources and registrable domains, the four evidence classes (including a different-product quote), items left out of the score, the three product-range states | 19 + 5 tests | Real code, no services needed |
 | Patch 4: independence of price sources (press releases, parent-company material, brand site plus one independent source), expert collaboration vs endorsement vs recommendation | 13 tests | Real code, no services needed |
+| Patch 5: the cleanser, availability and dermatologist cases with the real quotes, source counts (unique sources versus excerpts), the builder credit spelling | 15 tests, plus a footer check on every rendered page | Real code, no services needed |
 | Saved reports across format changes: real format 2, 3 and 4 reports open and the API returns exactly what was saved; nothing missing is invented; format 1 is not read; old cached reports are not reused | 8 tests | Real Redis, real route handler |
 | TypeScript, engine and API routes | Strict compile, zero errors | Real compiler |
 | TypeScript, pages and components | Strict compile with stand-in typings for React, Next.js and Recharts | Partial locally; the real check is the Vercel build |

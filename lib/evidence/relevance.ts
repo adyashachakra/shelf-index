@@ -162,7 +162,7 @@ export function evidenceClass(item: { level: CoverageLevel; relevance?: Evidence
 // ---------------------------------------------------------------------------------------------
 
 const EXPERT_TERM =
-  '(?:dermatolog\\w*|doctors?|physicians?|pediatricians?|paediatricians?|clinicians?|dentists?|dental professionals?|veterinarians?|vets?|pharmacists?|nutritionists?|dietitians?|therapists?|experts?|specialists?|estheticians?|aestheticians?|medical professionals?|healthcare professionals?)';
+  '(?:dermatolog\\w*|dr|professors?|doctors?|physicians?|pediatricians?|paediatricians?|clinicians?|dentists?|dental professionals?|veterinarians?|vets?|pharmacists?|nutritionists?|dietitians?|therapists?|experts?|specialists?|estheticians?|aestheticians?|medical professionals?|healthcare professionals?)';
 const RECOMMEND_TERM = '(?:recommend\\w*|prescrib\\w*|suggest\\w*|advis\\w*)';
 const ENDORSE_TERM = '(?:endors\\w*|approv\\w*|accept\\w*|accredit\\w*|seal of|backed|trusted|chosen|certif\\w*)';
 
@@ -171,13 +171,23 @@ const ASKS_EXPERT_RECOMMENDATION = new RegExp(`\\b${EXPERT_TERM}\\b[^.?!]{0,80}\
 const RECOMMENDATION_RE = new RegExp(`\\b${EXPERT_TERM}\\b[^.]{0,60}\\b${RECOMMEND_TERM}|\\b${RECOMMEND_TERM}\\b[^.]{0,60}\\b${EXPERT_TERM}\\b`, 'i');
 const ENDORSEMENT_RE = new RegExp(`\\b${EXPERT_TERM}\\b[^.]{0,60}\\b${ENDORSE_TERM}|\\b${ENDORSE_TERM}\\b[^.]{0,60}\\b${EXPERT_TERM}\\b`, 'i');
 
+// A person with a title, or a named body. Case matters here: names are capitalised, so this is not case-insensitive.
+// A word list again: a named expert written in a way it does not know is read as unnamed (the safe direction).
+const NAMED_EXPERT = new RegExp(
+  '\\b(?:Dr|Prof|Professor)\\.?\\s+[A-Z][a-z]+' +
+    '|\\b[A-Z][A-Za-z]+\\s+(?:Academy|Association|Society|Foundation|College|Council|Institute|Federation|Board)\\b' +
+    '|\\b(?:Academy|Association|Society|Foundation|College|Council|Institute|Federation|Board)\\s+of\\s+[A-Z]',
+);
+
 /** Is this checklist item asking what experts recommend or endorse? */
 export function isExpertRecommendationQuestion(text: string): boolean {
   return ASKS_EXPERT_RECOMMENDATION.test(text);
 }
 
 /** What a quote shows about experts, or null when it does not mention experts at all. */
-export function expertEvidenceIn(quote: string): ExpertEvidence | null {
+export function expertEvidenceIn(rawQuote: string): ExpertEvidence | null {
+  // "Dr. Jane Smith": the full stop after a title must not end the stretch of words the patterns look across.
+  const quote = rawQuote.replace(/\b(Dr|Prof|Mr|Mrs|Ms)\./g, '$1');
   if (!EXPERT_RE.test(quote)) return null;
   if (RECOMMENDATION_RE.test(quote)) return 'recommendation';
   if (ENDORSEMENT_RE.test(quote)) return 'endorsement';
@@ -208,5 +218,109 @@ export function applyExpertRule(input: { itemText: string; quote: string; outcom
       note: 'The words quoted show experts worked with the brand (helped develop or test it), not that experts recommend or endorse it. That counts as touched on, not as a clear answer.',
     };
   }
-  return { ...outcome, expertEvidence: shown };
+  // Experts recommend or endorse. The words are on the brand's own page, so they are the brand's claim.
+  // Only a quote that names who recommends it (a named person or an organisation) can be a clear answer;
+  // "dermatologist recommended" with nobody named is shown as the brand's claim, touched on.
+  if (NAMED_EXPERT.test(input.quote)) {
+    return {
+      ...outcome,
+      expertEvidence: shown,
+      note: "A named expert or organisation is quoted, on the brand's own page. This audit did not check the statement against any independent source.",
+    };
+  }
+  return {
+    level: outcome.level === 'clear' ? 'partial' : outcome.level,
+    relevance: 'indirect',
+    expertEvidence: 'brand_claim',
+    note: "The brand's own page says experts recommend or endorse it, but the words quoted name no expert or organisation, and this audit did not verify the claim. It is shown as the brand's claim and counts as touched on, not as a clear answer.",
+  };
+}
+
+// ---------------------------------------------------------------------------------------------
+// Two more cases where a page is near the question but does not answer it.
+//
+// 1. "Which X is best for Y?" A page that only says the brand's product SUITS a range of types
+//    ("suitable for a wide range of skin types from very dry to combination or oily") does not say it is
+//    the best choice for one of them. It is capped at "touched on". A quote that picks the product out
+//    for that need ("best for", "specifically formulated for") is left alone.
+// 2. "Is it available outside the United States or in Europe?" A page needs to say where products are
+//    available. A notice that the site detected the visitor's location says nothing about availability,
+//    so it is "not addressed". Availability stated only in general terms ("ships worldwide") is touched on.
+//
+// Both are word lists applied to the quote the existing analysis already returned: no extra request.
+// A phrasing they do not know is left as the analysis judged it.
+// ---------------------------------------------------------------------------------------------
+
+const SELECTION_Q = /\b(?:which|what)\b[^?.!]{0,60}\b(?:best|ideal|right|most suitable|better|top|good|recommended)\b[^?.!]{0,80}\b(?:for|to)\b/i;
+const SUITS_A_RANGE = /\b(?:suitable|appropriate|safe|designed|formulated|made|works?|good|ok|okay)\s+for\b|\bwide range\b|\b(?:all|any|every)\s+(?:\w+\s+)?types?\b/i;
+const PICKS_ONE_OUT = /\b(?:best|ideal|perfect|top|recommend\w*|go-to|our pick|favou?rite|choose|choice|specifically|especially|specially|tailored|targeted|#1)\b/i;
+
+/** Does this item ask which product is best for a need, rather than asking about the whole brand? */
+export function isSelectionQuestion(text: string): boolean {
+  return SELECTION_Q.test(text);
+}
+
+/** Does this quote only say a product suits a range of types, without picking it out for the need? */
+export function onlyGeneralSuitability(quote: string): boolean {
+  return SUITS_A_RANGE.test(quote) && !PICKS_ONE_OUT.test(quote);
+}
+
+const AVAILABILITY_VERB = /\b(?:available|availability|ship\w*|deliver\w*|sold|sells?|buy|purchase|distribut\w*|stockists?|retailers?|stores?|where to buy|order\w*|offer\w*)\b/i;
+const AVAILABILITY_Q = new RegExp(
+  `\\b(?:available|availability|ship\\w*|deliver\\w*|sold|sells?|buy|purchase|stock\\w*|find)\\b[^?.!]{0,80}\\b(?:outside|abroad|overseas|international\\w*|worldwide|global\\w*|europe\\w*|asia\\w*|africa\\w*|canada|mexico|australia|india|uk|united kingdom|countries|country|regions?)\\b` +
+    `|\\b(?:outside|abroad|overseas|international\\w*|worldwide|europe\\w*|countries|regions?)\\b[^?.!]{0,60}\\b(?:available|availability|ship\\w*|deliver\\w*|sold|buy|purchase)\\b`,
+  'i',
+);
+// A named place other than the United States: the question asks about availability outside it.
+const NAMED_PLACE =
+  /\b(?:europe\w*|european union|eu|uk|united kingdom|britain|canada|canadian|australia\w*|asia\w*|africa\w*|india\w*|japan\w*|china|chinese|germany|german|france|french|spain|spanish|italy|italian|mexico|mexican|brazil\w*|latin america|middle east|korea\w*|singapore|ireland|netherlands|sweden|norway|denmark|poland|turkey|uae|saudi arabia|new zealand)\b/i;
+const GENERAL_PLACE = /\b(?:countries|international\w*|worldwide|globally|global|overseas|abroad|regions?)\b/i;
+
+/** Is this item asking where products are available outside the United States or in another region? */
+export function isAvailabilityQuestion(text: string): boolean {
+  return AVAILABILITY_Q.test(text);
+}
+
+/** What a quote says about where products are available: a named place, general terms only, or nothing. */
+export function regionalAvailabilityIn(quote: string): 'named' | 'general' | 'none' {
+  if (!AVAILABILITY_VERB.test(quote)) return 'none';
+  if (NAMED_PLACE.test(quote)) return 'named';
+  if (GENERAL_PLACE.test(quote)) return 'general';
+  return 'none';
+}
+
+/**
+ * Apply both rules to a verdict that passed the relevance check. Only a clear or partial verdict with a
+ * verified quote, for a question of the kind each rule covers, is touched. Everything else is returned as it was.
+ */
+export function applyQuoteRules(input: { itemText: string; quote: string; outcome: RelevanceOutcome }): RelevanceOutcome {
+  const { outcome, quote, itemText } = input;
+  if (quote === '' || outcome.relevance === 'different_product' || outcome.relevance === 'uncertain' || outcome.level === 'none') return outcome;
+
+  if (isAvailabilityQuestion(itemText)) {
+    const found = regionalAvailabilityIn(quote);
+    if (found === 'named') return outcome;
+    if (found === 'general') {
+      return {
+        level: outcome.level === 'clear' ? 'partial' : outcome.level,
+        relevance: 'indirect',
+        note: 'The words quoted speak about availability in general terms and do not name a country or region, so this counts as touched on, not as a clear answer.',
+      };
+    }
+    const locationNotice = /\b(?:location|detected|your (?:country|region))\b/i.test(quote);
+    return {
+      level: 'none',
+      relevance: 'indirect',
+      note: `The words quoted do not say where products are available. ${locationNotice ? "A notice about the visitor's location is not availability information. " : ''}It counts as not addressed unless a page states actual regional availability.`,
+    };
+  }
+
+  if (isSelectionQuestion(itemText) && onlyGeneralSuitability(quote)) {
+    return {
+      level: outcome.level === 'clear' ? 'partial' : outcome.level,
+      relevance: 'indirect',
+      note: 'The words quoted say the product suits a range of types. They do not say it is the best choice for the need asked about, so this counts as touched on, not as a clear answer.',
+    };
+  }
+  return outcome;
 }

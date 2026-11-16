@@ -18,6 +18,7 @@ function relevanceNote(item: ChecklistItem): string | null {
     return `${item.relevanceNote ?? 'The evidence could not be tied to the question.'} It is left out of the score, and the score's confidence is lowered.`;
   }
   if (item.relevance === 'indirect') return item.relevanceNote ?? 'The page is about a related product or point, not a direct answer.';
+  if (item.expertEvidence && item.relevanceNote) return item.relevanceNote;
   return null;
 }
 
