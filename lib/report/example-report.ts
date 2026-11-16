@@ -5,7 +5,7 @@
 // The numbers are internally consistent with the scoring formulas:
 //   visibility  = 100 × (0 + 0.70 + 0.85 + 0 + 0.20 + 1.00 + 0) ÷ 7 = 39
 //   perception  = 100 × (12 + 0.5 × 4) ÷ 19.5 = 72   (weighted counts)
-//   content gap = 100 × (4 × 1.0 + 3 × 0.5) ÷ 9 = 61
+//   content gap = 100 × (4 × 1.0 + 5 × 0.5) ÷ 9 = 72   (two items are the brand's own claims, so touched on, not clear)
 
 import type { EvidenceItem, GeminiAnswer, Report } from '../types';
 
@@ -205,7 +205,7 @@ export const EXAMPLE_REPORT: Report = {
   contentGap: {
     metric: {
       status: 'scored',
-      score: 61,
+      score: 72,
       confidence: 'high',
       confidenceReason: '9 pages read across 3 site sections; 9 checklist items. Based on pages a search surfaced, not a full crawl.',
     },
@@ -213,14 +213,14 @@ export const EXAMPLE_REPORT: Report = {
       domain: SITE,
       pagesRead: 9,
       sections: ['home', 'pages', 'products'],
-      points: 5.5,
+      points: 6.5,
       checklist: [
         { id: 'q1', source: 'category_question', text: ANSWERS[0].question, level: 'none', geminiNamedBrand: false },
-        { id: 'q2', source: 'category_question', text: ANSWERS[1].question, level: 'partial', url: `https://${SITE}/illustrative/s3`, quote: 'Our oat cleanser is made for sensitive and reactive skin.', geminiNamedBrand: true },
-        { id: 'q3', source: 'category_question', text: ANSWERS[2].question, level: 'clear', url: `https://${SITE}/illustrative/s3`, quote: 'Our oat cleanser is made for sensitive and reactive skin.', geminiNamedBrand: true },
+        { id: 'q2', source: 'category_question', text: ANSWERS[1].question, level: 'partial', url: `https://${SITE}/illustrative/s3`, quote: 'Our oat cleanser is made for sensitive and reactive skin.', geminiNamedBrand: true, brandClaim: true, relevanceNote: "This is the brand's own statement on its website. It shows what the brand claims; it does not independently establish that it is effective." },
+        { id: 'q3', source: 'category_question', text: ANSWERS[2].question, level: 'partial', url: `https://${SITE}/illustrative/s3`, quote: 'Our oat cleanser is made for sensitive and reactive skin.', geminiNamedBrand: true, relevance: 'brand_wide', brandClaim: true, relevanceNote: "This is the brand's own statement on its website. It shows what the brand claims; it does not independently establish that it is the best or a suitable choice. It counts as touched on, not as a clear answer." },
         { id: 'q4', source: 'category_question', text: ANSWERS[3].question, level: 'none', geminiNamedBrand: false },
         { id: 'q6', source: 'category_question', text: ANSWERS[5].question, level: 'none', geminiNamedBrand: true },
-        { id: 'q7', source: 'category_question', text: ANSWERS[6].question, level: 'clear', url: `https://${SITE}/illustrative/s1`, quote: 'Every Northmere product is fragrance-free.', geminiNamedBrand: true },
+        { id: 'q7', source: 'category_question', text: ANSWERS[6].question, level: 'partial', url: `https://${SITE}/illustrative/s1`, quote: 'Every Northmere product is fragrance-free.', geminiNamedBrand: true, relevance: 'brand_wide', brandClaim: true, relevanceNote: "This is the brand's own statement on its website. It shows what the brand claims; it does not independently establish that it is the best or a suitable choice. It counts as touched on, not as a clear answer." },
         { id: 'q8', source: 'category_question', text: ANSWERS[7].question, level: 'partial', downgraded: true, geminiNamedBrand: false },
         { id: 'c1', source: 'customer_concern', text: 'How long does delivery take?', level: 'partial', url: `https://${SITE}/illustrative/s2`, quote: 'Orders ship fast, straight from our studio.' },
         { id: 'c2', source: 'customer_concern', text: 'What happens if the pump breaks?', level: 'none', relevance: 'different_product', evidenceAbout: 'the mineral sunscreen' },

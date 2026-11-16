@@ -10,6 +10,7 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import * as relevance from '../lib/evidence/relevance';
 import { gapPoints, scoreContentGap } from '../lib/scoring/content-gap';
+import { EXAMPLE_REPORT } from '../lib/report/example-report';
 import type { ChecklistItem } from '../lib/types';
 
 const outcome = (level: 'clear' | 'partial', kind: 'direct' | 'brand_wide' = 'direct') => ({ level, relevance: kind });
@@ -170,4 +171,19 @@ test('the brand-claim rule is local: no model call, no search, no network in the
   // And website.ts still sends the same single site-analysis request: the rules run on its answer.
   const website = readFileSync(new URL('../lib/audit/stages/website.ts', import.meta.url), 'utf8');
   assert.match(website, /applyAllRules\(/);
+});
+
+// ---------- 7. the illustrative example follows the same rule ----------
+
+test('the illustrative example report obeys the rule and its content gap numbers still follow the formula', () => {
+  const detail = EXAMPLE_REPORT.contentGap.detail;
+  for (const entry of detail.checklist) {
+    if (relevance.claimKind(entry.text) !== null && entry.quote) {
+      assert.notEqual(entry.level, 'clear', `"${entry.text}" is a claim question answered by the brand's own words`);
+      assert.equal(entry.brandClaim, true, entry.text);
+    }
+  }
+  assert.equal(EXAMPLE_REPORT.version, 6);
+  assert.equal(detail.points, gapPoints(detail.checklist));
+  assert.equal(EXAMPLE_REPORT.contentGap.metric.status === 'scored' && EXAMPLE_REPORT.contentGap.metric.score, Math.round((100 * detail.points) / detail.checklist.length));
 });
