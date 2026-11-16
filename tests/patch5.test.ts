@@ -217,3 +217,57 @@ test('a named doctor is recognised even though the title ends in a full stop', (
   assert.equal(result.level, 'clear');
   assert.equal(result.expertEvidence, 'recommendation');
 });
+
+// ---------- 6. a denied recommendation is not a recommendation ----------
+
+test('"doctors do not recommend this brand" is not read as a recommendation', () => {
+  const quote = 'Doctors do not recommend this brand';
+  assert.equal(relevance.expertEvidenceIn(quote), 'negated');
+  const result = relevance.applyExpertRule({ itemText: Q6, quote, outcome: outcome('clear', 'brand_wide') });
+  assert.equal(result.level, 'none');
+  assert.equal(result.relevance, 'indirect');
+  assert.equal(result.expertEvidence, 'negated');
+  assert.match(result.note ?? '', /do not recommend or endorse the brand/);
+  assert.equal(relevance.evidenceClass(result), 'not_addressed');
+  assert.equal(relevance.isLeftOut(result), false, 'the page was read and does not answer the question: counted as not addressed');
+});
+
+test('other ways of denying a recommendation, including a named expert', () => {
+  for (const quote of [
+    'Not recommended by dermatologists',
+    "Dermatologists don't recommend it",
+    "Dermatologists don’t recommend it",
+    'Dermatologists never recommend this cleanser',
+    'No dermatologist endorses this brand',
+    'None of the doctors we asked recommend it',
+    'Not approved by dermatologists',
+    'Dr. Jane Smith does not recommend this brand',
+  ]) {
+    assert.equal(relevance.expertEvidenceIn(quote), 'negated', quote);
+    const result = relevance.applyExpertRule({ itemText: Q6, quote, outcome: outcome('clear') });
+    assert.equal(result.level, 'none', quote);
+  }
+});
+
+test('a "no" or "not" elsewhere in the sentence does not turn a recommendation into a denial', () => {
+  for (const quote of [
+    'No harsh chemicals, recommended by dermatologists',
+    'No added fragrance. Dermatologist recommended.',
+    'Not only recommended by doctors but loved by customers',
+    'Not just tested but recommended by dermatologists',
+    "Dermatologists can't recommend it enough",
+    'Recommended by Dr. Jane Smith, dermatologist',
+  ]) {
+    const kind = relevance.expertEvidenceIn(quote);
+    assert.ok(kind === 'recommendation' || kind === 'endorsement', `${quote} -> ${kind}`);
+  }
+  assert.equal(relevance.isNegated('Recommended by dermatologists'), false);
+});
+
+test('negation changes only the expert rule', () => {
+  const clear = outcome('clear');
+  assert.deepEqual(relevance.applyExpertRule({ itemText: 'What are the best skincare brands for anti-aging?', quote: 'Doctors do not recommend this brand', outcome: clear }), clear, 'not an expert question');
+  assert.deepEqual(relevance.applyExpertRule({ itemText: Q6, quote: '', outcome: clear }), clear, 'no verified quote');
+  assert.equal(relevance.expertEvidenceIn('Clinically proven to hydrate for 48 hours'), null);
+  assert.equal(relevance.expertEvidenceIn("We've partnered with dermatologists to identify 5 signs of sensitivity"), 'collaboration');
+});

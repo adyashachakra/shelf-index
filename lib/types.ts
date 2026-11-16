@@ -285,8 +285,9 @@ export type EvidenceRelevance = 'direct' | 'brand_wide' | 'indirect' | 'differen
  * What a quote shows about experts: a named expert or organisation recommends or endorses the brand,
  * experts only worked with it, or the brand's own page claims experts recommend it without naming
  * anyone (brand_claim, shown as the brand's claim and never as an independently verified endorsement).
+ * negated: the words deny it ("doctors do not recommend this brand"); never read as a recommendation.
  */
-export type ExpertEvidence = 'recommendation' | 'endorsement' | 'collaboration' | 'brand_claim';
+export type ExpertEvidence = 'recommendation' | 'endorsement' | 'collaboration' | 'brand_claim' | 'negated';
 export type EvidenceClass = 'clear' | 'touched_on' | 'not_addressed' | 'uncertain';
 
 export type PriceTier = 'budget' | 'premium';

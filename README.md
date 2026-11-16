@@ -391,8 +391,10 @@ These three corrections pass the simulated tests. Their own live run is the next
   V1.1 report and with simulated services; no live audit has run under these rules. Known limits: the
   rules are word lists, so a phrasing they do not know is left as the analysis judged it (for example a
   named expert organisation whose name contains no expert word is read as no expert reference and left
-  out of the score, the safe direction), and a negated quote ("doctors do not recommend ...") would
-  still read as a recommendation. Reports already saved are shown as they were and are not rewritten.
+  out of the score, the safe direction). A denied recommendation ("doctors do not recommend this
+  brand", "not recommended by dermatologists", "no dermatologist endorses it") is read as a denial and
+  counts as "not addressed", never as a recommendation; denials worded in ways the list does not know
+  are not caught. Reports already saved are shown as they were and are not rewritten.
 - Whether content gap severity is stable from run to run. The two Cetaphil audits, about two
   hours apart on the same model, gave 55 and 78. The formula, the instruction for this step and
   the code that fetches the brand's pages were the same in both. The search returned different
@@ -420,7 +422,7 @@ These three corrections pass the simulated tests. Their own live run is the next
 | Evidence rules: price-tier relevance in every category, quotes about the brand, brand capitalisation, graded patterns, wording that overclaims | 12 tests | Real code, no services needed |
 | Patch 3: two independent price sources and registrable domains, the four evidence classes (including a different-product quote), items left out of the score, the three product-range states | 19 + 5 tests | Real code, no services needed |
 | Patch 4: independence of price sources (press releases, parent-company material, brand site plus one independent source), expert collaboration vs endorsement vs recommendation | 13 tests | Real code, no services needed |
-| Patch 5: the cleanser, availability and dermatologist cases with the real quotes, source counts (unique sources versus excerpts), the builder credit spelling | 15 tests, plus a footer check on every rendered page | Real code, no services needed |
+| Patch 5: the cleanser, availability and dermatologist cases with the real quotes, source counts (unique sources versus excerpts), the builder credit spelling | 19 tests (including denied recommendations), plus a footer check on every rendered page | Real code, no services needed |
 | Saved reports across format changes: real format 2, 3 and 4 reports open and the API returns exactly what was saved; nothing missing is invented; format 1 is not read; old cached reports are not reused | 8 tests | Real Redis, real route handler |
 | TypeScript, engine and API routes | Strict compile, zero errors | Real compiler |
 | TypeScript, pages and components | Strict compile with stand-in typings for React, Next.js and Recharts | Partial locally; the real check is the Vercel build |

@@ -184,11 +184,28 @@ export function isExpertRecommendationQuestion(text: string): boolean {
   return ASKS_EXPERT_RECOMMENDATION.test(text);
 }
 
+// A recommendation that is denied is not a recommendation. "Doctors do not recommend this brand", "not
+// recommended by dermatologists" and "no dermatologist endorses it" mention experts and the word
+// "recommend", and must not be read as one. The negator has to sit right before the verb (at most two
+// words between), so "no harsh chemicals, dermatologist recommended" and "not only recommended by doctors"
+// are not mistaken for denials, and "can't recommend it enough" is the praise it is meant as.
+const NEGATOR = "(?:not|never|cannot|no longer|\\w+n['\u2019]t)";
+const NEGATED_VERB = new RegExp(`\\b${NEGATOR}\\s+(?!(?:only|just)\\b)(?:\\w+\\s+){0,2}${'(?:' + RECOMMEND_TERM + '|' + ENDORSE_TERM + ')'}`, 'i');
+const NO_EXPERT = new RegExp(`\\b(?:no|none of the|neither|nor)\\s+(?:\\w+\\s+){0,2}${EXPERT_TERM}\\b`, 'i');
+const PRAISE_IDIOM = /\b(?:can(?:not|['\u2019]t)|couldn['\u2019]t)\s+(?:\w+\s+){0,2}recommend[^.]{0,40}\benough\b/gi;
+
+/** Does this quote deny that experts recommend or endorse the brand? */
+export function isNegated(quote: string): boolean {
+  const text = quote.replace(PRAISE_IDIOM, ' ');
+  return NEGATED_VERB.test(text) || (NO_EXPERT.test(text) && new RegExp(`\\b(?:${RECOMMEND_TERM}|${ENDORSE_TERM})`, 'i').test(text));
+}
+
 /** What a quote shows about experts, or null when it does not mention experts at all. */
 export function expertEvidenceIn(rawQuote: string): ExpertEvidence | null {
   // "Dr. Jane Smith": the full stop after a title must not end the stretch of words the patterns look across.
   const quote = rawQuote.replace(/\b(Dr|Prof|Mr|Mrs|Ms)\./g, '$1');
   if (!EXPERT_RE.test(quote)) return null;
+  if (isNegated(quote)) return 'negated';
   if (RECOMMENDATION_RE.test(quote)) return 'recommendation';
   if (ENDORSEMENT_RE.test(quote)) return 'endorsement';
   return 'collaboration';
@@ -208,6 +225,14 @@ export function applyExpertRule(input: { itemText: string; quote: string; outcom
       level: 'none',
       relevance: 'uncertain',
       note: 'The question asks what experts recommend, and the words quoted do not mention experts, so they could not be tied to it.',
+    };
+  }
+  if (shown === 'negated') {
+    return {
+      level: 'none',
+      relevance: 'indirect',
+      expertEvidence: 'negated',
+      note: 'The words quoted say experts do not recommend or endorse the brand, or that none do. That is not a recommendation, so it counts as not addressed.',
     };
   }
   if (shown === 'collaboration') {
