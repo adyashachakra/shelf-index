@@ -81,8 +81,10 @@ export async function runCompetitors(ctx: StageContext): Promise<'done' | 'conti
       } else {
         const known = new Set(state.items.map((i) => i.id));
         const labels: EvidenceLabel[] = [];
-        for (const label of result.data.labels) {
-          if (known.has(label.id) && !labels.some((l) => l.id === label.id)) labels.push(label);
+        for (const { same_business: sameBusiness, ...label } of result.data.labels) {
+          if (!known.has(label.id) || labels.some((l) => l.id === label.id)) continue;
+          // An item that discusses both the competitor and a look-alike is unverified: it is not counted as sentiment.
+          labels.push(sameBusiness === 'mixed' ? { ...label, relevant: false, sameBusiness: false, mixedBrand: true } : label);
         }
         state.labels = labels;
       }

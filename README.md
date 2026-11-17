@@ -98,6 +98,24 @@ for COS, `cosrx.com`, `cosgramusa.com` and `cos-iq.com` are other businesses. Sh
 (four characters or fewer) get the strictest rules. Results found to use a look-alike name are
 set aside, never scored, and listed in the report under "Found but not counted".
 
+**Mixed-brand pages (Patch 8).** A page, video or comment that names the brand AND a look-alike in
+the same title or excerpt ("COS to COSRX", "COSRX vs COS", "COS & Cos De Baha") is *mixed*. Even if it
+also contains genuine content about the brand, what it says cannot be attributed to the brand, so it is
+unverified and is never evidence: it is not counted in opinions, themes, the synthesis input,
+recommendations, claim checks, YouTube comments or competitor sentiment, and it is listed under
+"Found but not counted" with the reason. Two layers apply it independently:
+
+1. **A plain string rule**, for short ambiguous names (four characters or fewer): the name stands
+   alone AND a look-alike appears in the same title or excerpt. A look-alike is a spaced or hyphenated
+   name (`COS RX`, `cos-IQ`, `Cos De Baha`) or a name run together with a capitalised or numeric
+   ending (`COSRX`, `CosRX`). The rule does not apply to longer names, and ordinary words ("cost",
+   "cosy", "cosmetics", "THE COST OF COS") never trigger it. It runs even when the labeller says "yes".
+2. **The reader's own answer.** The evidence labeller may answer `same_business: "mixed"` for any
+   brand, and that answer excludes the item even when the string rule did not fire.
+
+The brand's own verified pages are not examined by this rule. Scoring formulas, quotas, caching and the
+report format (7) are unchanged; saved reports are not rewritten.
+
 ---
 
 ## The three scores
@@ -470,6 +488,7 @@ These three corrections pass the simulated tests. Their own live run is the next
 | Patch 5: the cleanser, availability and dermatologist cases with the real quotes, source counts (unique sources versus excerpts), the builder credit spelling | 19 tests (including denied recommendations), plus a footer check on every rendered page | Real code, no services needed |
 | Patch 6: the brand-claim rule for the effectiveness, suitability, clinical and expert cases, questions of fact unaffected, earlier rules unchanged, scoring formula unchanged, no network in the rule | 15 tests (8 of them fail if the rule is switched off) | Real code, no services needed |
 | Brand identity: COS against COSRX, Cos De Baha, cos-IQ and cosgramusa.com; the original COS/Skincare failure replayed; stop, refund and no-resume behaviour; recognised and unrecognised-with-domain paths; genuine zero versus non-recognition; confidence; competitor labelling; unrelated evidence kept out of recommendations; form confirmation rules | 22 tests (the key ones fail if the rules are removed) | Real Redis; Gemini, Tavily and YouTube **simulated**, with invented reconstructions of the failing pages |
+| Mixed-brand evidence: the real Lemon8 title and 139-character excerpt, "COS to COSRX" and other mixed titles, ordinary COS pages and ordinary words ("cost") unaffected, longer names unaffected, the reader's "mixed" answer, YouTube videos and comments, competitor sentiment, one-item-moved control runs with scores unchanged | 15 tests (each of the five rules fails a test when switched off) | Real Redis; Gemini, Tavily and YouTube **simulated**; the Lemon8 text is copied from the saved COS report |
 | Saved reports across format changes: real format 2, 3, 4, 5 and 6 reports open and the API returns exactly what was saved; nothing missing is invented; format 1 is not read; old cached reports are not reused | 10 tests | Real Redis, real route handler |
 | TypeScript, engine and API routes | Strict compile, zero errors | Real compiler |
 | TypeScript, pages and components | Strict compile with stand-in typings for React, Next.js and Recharts | Partial locally; the real check is the Vercel build |
@@ -531,7 +550,12 @@ To run the tests yourself (optional, needs Node.js and a local Redis server on p
 - **Identity checks are heuristics.** The look-alike and domain rules are plain string checks with a short
   built-in word list; they can wrongly reject a brand whose real site uses an unusual name, and they
   will not recognise every look-alike (for example lowercase "cos rx" is left to the evidence
-  labeller). Whether a result is about the same business is a model judgement. Gemini not recognising
+  labeller, and a mixed page is only caught by the model's own answer when the title and excerpt do not
+  show it). The mixed-brand string rule uses a short list of ordinary words, so an unusual ordinary word
+  that begins with a short brand name and has a capital or digit after it could wrongly set a page aside
+  (it removes that one item from the evidence, which can move a sentiment figure slightly; the formulas themselves are unchanged). Mixedness that appears only deep in a page's full text
+  is not seen, because only the title and excerpt are checked. Whether a result is about the same business
+  is a model judgement. Gemini not recognising
   a brand can be a false negative, in which case the report says the brand was identified only from its
   website address.
 - An audit stopped for identity still keeps its daily and visitor slot when the one website-check search

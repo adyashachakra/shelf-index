@@ -160,6 +160,12 @@ if (identityDump && existsSync(identityDump)) {
     process.exitCode = 1;
   }
 }
+// Optional: a report from the engine in which the real Lemon8 page was set aside as mixed-brand (tests/mixed-brand.test.ts, SI_DUMP_MIXED_REPORT).
+const mixedDump = process.env.SI_MIXED_REPORT;
+if (mixedDump && existsSync(mixedDump)) {
+  const mixedReport = JSON.parse(readFileSync(mixedDump, 'utf8')) as Report;
+  checks.push(['mixed-brand', page('mixed-brand', <ReportView report={mixedReport} />), ['Found but not counted', 'lemon8-app.com', 'Names both', 'COSRX', 'cannot be attributed to COS']]);
+}
 if (dumpPath && existsSync(dumpPath)) {
   const fromEngine = JSON.parse(readFileSync(dumpPath, 'utf8')) as Report;
   checks.push(['pipeline', page('pipeline', <ReportView report={fromEngine} />), ['Could not be assessed', 'Hypothesis to test, not a measured result', 'How the sample breaks down', 'Why this model', 'Uncertain', 'about sunscreen', 'Products identified in the pages read', 'supported by independent sources']]);

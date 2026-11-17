@@ -74,8 +74,10 @@ export async function runPerception(ctx: StageContext): Promise<'done' | 'contin
   for (const { same_business: sameBusiness, ...label } of result.data.labels) {
     if (!byId.has(label.id) || seen.has(label.id)) continue;
     seen.add(label.id);
-    const different = sameBusiness === 'no' || (strict && sameBusiness === 'unclear');
-    labels.push(different ? { ...label, relevant: false, sameBusiness: false } : label);
+    // "Mixed" (the item discusses both this brand and a look-alike) is unverified for every brand, whatever Gemini knows.
+    const mixed = sameBusiness === 'mixed';
+    const different = mixed || sameBusiness === 'no' || (strict && sameBusiness === 'unclear');
+    labels.push(different ? { ...label, relevant: false, sameBusiness: false, ...(mixed ? { mixedBrand: true as const } : {}) } : label);
   }
   const labelById = new Map(labels.map((l) => [l.id, l]));
   const relevant = (id: string) => labelById.get(id)?.relevant === true;

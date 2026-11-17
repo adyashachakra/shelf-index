@@ -1,5 +1,5 @@
 import 'server-only';
-import { differentBusinessItems, readablePages } from '../audit/evidence-builders';
+import { differentBusinessItems, mixedByReaderReason, readablePages } from '../audit/evidence-builders';
 import type { JobData, JobMeta } from '../audit/job';
 import { QUESTION_BANK_VERSION } from '../audit/questions';
 import { config, GEMINI_REQUESTS_PER_AUDIT } from '../config';
@@ -649,8 +649,10 @@ export function buildReport(job: JobMeta, data: JobData): Report {
   // items that were read and judged to be about a different business.
   const setAside: SetAsideEvidence[] = [];
   for (const entry of [...(data.audience?.setAside ?? []), ...(data.youtube?.setAside ?? [])]) addSetAside(setAside, entry);
+  const mixedIds = new Set((data.labels?.labels ?? []).filter((label) => label.mixedBrand === true).map((label) => label.id));
   for (const item of differentBusinessItems(data)) {
-    addSetAside(setAside, { title: clip(item.title, 120), url: item.sourceUrl || item.url, domain: item.domain, reason: 'Read and judged to be about a different business that has a similar name.' });
+    const reason = mixedIds.has(item.id) ? mixedByReaderReason(meta.brand) : 'Read and judged to be about a different business that has a similar name.';
+    addSetAside(setAside, { title: clip(item.title, 120), url: item.sourceUrl || item.url, domain: item.domain, reason });
   }
 
   const youtube = data.youtube;

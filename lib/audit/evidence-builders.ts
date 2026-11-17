@@ -1,6 +1,6 @@
 import 'server-only';
 import type { TavilyResult } from '../clients/tavily';
-import { domainBelongsToBrand, domainResemblesBrand, mentionsBrand, scanShortName, isShortAmbiguousName, mentionsBrandLoosely } from '../evidence/brand-match';
+import { brandAttribution, domainBelongsToBrand, domainResemblesBrand, mentionsBrand, isShortAmbiguousName, mentionsBrandLoosely } from '../evidence/brand-match';
 import {
   canonicalUrl,
   clean,
@@ -16,15 +16,29 @@ import type { EvidenceItem, EvidenceKind, SetAsideEvidence, SitePage } from '../
 import type { JobData } from './job';
 
 /**
+ * Why an item that names the brand and also a look-alike ("COS to COSRX", "COS vs Cos De Baha") is not counted:
+ * what it says cannot be attributed to the brand, so it is unverified. Shown under "Found but not counted".
+ */
+export function mixedNameReason(brand: string, lookalikes: string[]): string {
+  const names = lookalikes.slice(0, 2).map((name) => `"${name}"`).join(' and ');
+  return `Names both "${brand}" and ${names} (a different name), so what it says cannot be attributed to ${brand}.`;
+}
+
+/** The reason for an item the reader judged to discuss both the brand and another business with a similar name. */
+export function mixedByReaderReason(brand: string): string {
+  return `Read and judged to discuss both ${brand} and a different business with a similar name, so what it says cannot be attributed to ${brand}.`;
+}
+
+/**
  * Why a result that used a similar name was not counted as the brand, or null when it did not use one.
  * "COS RX" and "cos-IQ" are other names that begin with "cos"; "cosgramusa.com" only contains it.
+ * An item that names the brand and the look-alike together is "mixed" (see brandAttribution).
  */
 export function similarNameReason(text: string, domain: string, brand: string): string | null {
   if (isShortAmbiguousName(brand)) {
-    const scan = scanShortName(text, brand);
-    if (scan.standalone === 0 && scan.lookalikes.length > 0) {
-      return `Names "${scan.lookalikes.slice(0, 2).join('" and "')}", which is a different name from "${brand}".`;
-    }
+    const attribution = brandAttribution(text, brand);
+    if (attribution.state === 'mixed') return mixedNameReason(brand, attribution.lookalikes);
+    if (attribution.state === 'other') return `Names "${attribution.lookalikes.slice(0, 2).join('" and "')}", which is a different name from "${brand}".`;
   } else if (!mentionsBrand(text, brand) && mentionsBrandLoosely(text, brand)) {
     return `The name appears only in a form that is not "${brand}".`;
   }
@@ -70,6 +84,15 @@ export function resultsToEvidence(options: {
       if (!options.allowBrandDomain) continue; // the brand's own pages are not independent evidence
     }
     if (text.length < 40) continue;
+    // An item that names the brand together with a look-alike ("COS to COSRX") is unverified: it is never evidence about
+    // the brand, whatever else it says. Only short ambiguous names are examined; the brand's own pages are not.
+    if (named && !domainBelongsToBrand(domain, options.brand)) {
+      const attribution = brandAttribution(`${title} ${text}`, options.brand);
+      if (attribution.state === 'mixed') {
+        options.onSetAside?.({ title: clip(title, 120), url: result.url, domain, reason: mixedNameReason(options.brand, attribution.lookalikes) });
+        continue;
+      }
+    }
     if (!named) {
       const reason = similarNameReason(`${title} ${text}`, domain, options.brand);
       if (reason !== null) options.onSetAside?.({ title: clip(title, 120), url: result.url, domain, reason });

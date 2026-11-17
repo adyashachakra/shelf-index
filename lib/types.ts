@@ -156,6 +156,8 @@ export interface EvidenceLabel {
    * Only ever recorded as false (an item shown to be about something else); absent means "not in question".
    */
   sameBusiness?: boolean;
+  /** Set with sameBusiness false when the item was judged to discuss both this brand and a look-alike, not only the other. */
+  mixedBrand?: true;
 }
 
 /** What a theme is about: one named product, the brand in general, or not clear from the evidence. */

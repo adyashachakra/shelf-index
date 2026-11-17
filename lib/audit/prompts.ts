@@ -152,12 +152,19 @@ const LABEL_ITEM = obj({
   voice: oneOf(['customer', 'creator', 'publication', 'brand', 'unclear']),
   sentiment: oneOf(['positive', 'mixed', 'negative', 'neutral']),
 });
+const COMPETITOR_LABEL_ITEM = obj({
+  id: str(),
+  relevant: bool(),
+  voice: oneOf(['customer', 'creator', 'publication', 'brand', 'unclear']),
+  sentiment: oneOf(['positive', 'mixed', 'negative', 'neutral']),
+  same_business: oneOf(['yes', 'mixed']),
+});
 const AUDITED_LABEL_ITEM = obj({
   id: str(),
   relevant: bool(),
   voice: oneOf(['customer', 'creator', 'publication', 'brand', 'unclear']),
   sentiment: oneOf(['positive', 'mixed', 'negative', 'neutral']),
-  same_business: oneOf(['yes', 'no', 'unclear']),
+  same_business: oneOf(['yes', 'no', 'unclear', 'mixed']),
 });
 const LABELS_SCHEMA = obj({
   labels: list(AUDITED_LABEL_ITEM),
@@ -191,7 +198,7 @@ export function labelEvidencePrompt(brand: string, categoryLabel: string, items:
       'You are a careful research analyst reading what people say about a brand.',
       UNTRUSTED,
       'Tasks:',
-      '1. "labels": one entry for EVERY evidence id. "same_business" is "yes" only if the item is about the business named exactly by "Brand" (use "Brand context" if given), "no" if it is about a different business or product whose name only contains, begins with or resembles the brand\'s name (for example a different brand with a longer name, or a hyphenated or run-together name) or about an unrelated field, and "unclear" if you cannot tell. "relevant" is true only if the text expresses an opinion, experience or fact about this brand or its products. "voice": customer (an ordinary buyer or user speaking from experience), creator (an influencer, YouTuber or reviewer personality), publication (an editorial article or review site), brand (written by the brand or its staff), unclear. "sentiment" is the attitude toward this brand: positive, mixed, negative or neutral.',
+      '1. "labels": one entry for EVERY evidence id. "same_business" is "yes" only if the item is about the business named exactly by "Brand" (use "Brand context" if given), "no" if it is about a different business or product whose name only contains, begins with or resembles the brand\'s name (for example a different brand with a longer name, or a hyphenated or run-together name) or about an unrelated field, "mixed" if the item discusses or names both this business and another business or product with a similar name (for example a title that names the brand and a different brand that begins with the same letters), so that what it says cannot be attributed to one of them with confidence, and "unclear" if you cannot tell. "relevant" is true only if the text expresses an opinion, experience or fact about this brand or its products. "voice": customer (an ordinary buyer or user speaking from experience), creator (an influencer, YouTuber or reviewer personality), publication (an editorial article or review site), brand (written by the brand or its staff), unclear. "sentiment" is the attitude toward this brand: positive, mixed, negative or neutral.',
       '2. "praise_themes": up to 3 things people praise. Include a theme only if at least 2 different evidence items show it. Give the ids of ALL items that show it, plus one short quote copied exactly from one of them. "scope" is "one_product" when the items are about a single named product (put its name, as the evidence writes it, in "product"), "brand_overall" when they are about the brand in general, otherwise "unclear".',
       '3. "complaint_themes": the same for complaints. The label names the topic in a few words (for example "Slow delivery" or "Irritation reports"), never a cause or a verdict. Write each summary as what these customers report about their own experience. Do not turn a few reports into a claim about the whole brand, and do not state a cause as fact: if customers blame an ingredient or a reformulation, say they attribute it to that.',
       '4. "concerns": up to 4 questions or worries customers raise that the brand\'s own website could answer, each shown by at least 2 evidence items.',
@@ -320,10 +327,10 @@ export function competitorLabelsPrompt(
     system: [
       'You are labeling what people say about several brands. Each evidence item names the brand it is about in its "about" field.',
       UNTRUSTED,
-      'Return one entry for EVERY evidence id. "relevant" is true only if the text expresses an opinion or experience about the brand named in "about". "voice": customer, creator, publication, brand or unclear. "sentiment" toward that brand: positive, mixed, negative or neutral.',
+      'Return one entry for EVERY evidence id. "same_business" is "mixed" if the item discusses or names both the brand named in "about" and another business or product with a similar name, so that what it says cannot be attributed to the brand with confidence; otherwise "yes". "relevant" is true only if the text expresses an opinion or experience about the brand named in "about". "voice": customer, creator, publication, brand or unclear. "sentiment" toward that brand: positive, mixed, negative or neutral.',
     ].join('\n'),
     user: [`Category: ${JSON.stringify(categoryLabel)}`, block('EVIDENCE', items)].join('\n\n'),
-    schema: obj({ labels: list(LABEL_ITEM) }),
+    schema: obj({ labels: list(COMPETITOR_LABEL_ITEM) }),
     parse: (value) => CompetitorLabelsSchema.parse(value),
   };
 }

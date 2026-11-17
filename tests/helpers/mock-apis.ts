@@ -21,11 +21,17 @@ export interface Scenario {
   /** The domain whose site-restricted searches return pages (the brand's own site). */
   siteDomain?: string;
   /** The reader's verdict on whether an evidence item is about the audited business. Default: "yes". */
-  sameBusiness?: (id: string) => 'yes' | 'no' | 'unclear';
+  sameBusiness?: (id: string) => 'yes' | 'no' | 'unclear' | 'mixed';
   /** Evidence ids that the recommendations try to cite. */
   fixIds?: string[];
   /** Titles of YouTube videos returned by the search. */
   videoTitles?: string[];
+  /** Comments returned for every video (scenario audits otherwise return none). */
+  videoComments?: string[];
+  /** Results returned for a competitor's sentiment search, instead of the default pages. */
+  competitorResults?: (name: string) => { title: string; url: string; content: string }[];
+  /** The reader's "mixed" verdict for a competitor item, by the competitor it is about. */
+  competitorMixed?: (about: string, text: string) => boolean;
 }
 
 export interface MockState {
@@ -278,7 +284,16 @@ function geminiResponse(system: string, user: string, state: MockState): unknown
   }
   if (system.includes('labeling what people say about several brands')) {
     const items = (b.EVIDENCE as Item[]) ?? [];
-    return { labels: items.map((item, index) => ({ id: item.id, relevant: true, voice: index % 3 === 0 ? 'publication' : 'customer', sentiment: index % 5 === 0 ? 'negative' : 'positive' })) };
+    if (!system.includes('"same_business"')) throw new Error('The competitor labelling instruction must ask for "same_business"');
+    return {
+      labels: items.map((item, index) => ({
+        id: item.id,
+        relevant: true,
+        voice: index % 3 === 0 ? 'publication' : 'customer',
+        sentiment: index % 5 === 0 ? 'negative' : 'positive',
+        same_business: scenario?.competitorMixed?.(String(item.about ?? ''), item.text) ? 'mixed' : 'yes',
+      })),
+    };
   }
   if (system.includes('brand strategist comparing')) {
     return {
@@ -344,7 +359,8 @@ function tavilyResponse(body: Record<string, unknown>, state: MockState): unknow
     } else if (query.includes('review honest opinion forum')) results = shape(scenario.reviews);
     else if (query.includes('reviews honest opinions')) {
       const name = query.split(` clothing`)[0];
-      results = shape(Array.from({ length: 4 }, (_, i) => ({ title: `${name} review ${i + 1}`, url: `https://comp${i}.example.org/${encodeURIComponent(name)}/${i}`, content: `${name} has been reliable and worth the price according to this long-term reviewer of the brand.` })));
+      if (scenario.competitorResults) results = shape(scenario.competitorResults(name));
+      else results = shape(Array.from({ length: 4 }, (_, i) => ({ title: `${name} review ${i + 1}`, url: `https://comp${i}.example.org/${encodeURIComponent(name)}/${i}`, content: `${name} has been reliable and worth the price according to this long-term reviewer of the brand.` })));
     } else results = [];
     return { query, results, response_time: 0.4, usage: { credits: 1 }, request_id: 'mock' };
   }
@@ -400,6 +416,9 @@ function youtubeResponse(url: URL, state: MockState): Response {
   const path = url.pathname;
   if (state.scenario && path.endsWith('/search')) {
     return json(200, { items: (state.scenario.videoTitles ?? []).map((title, i) => ({ id: { videoId: `sv${i}` }, snippet: { title, description: 'A video', channelTitle: 'Creator' } })) });
+  }
+  if (state.scenario && path.endsWith('/commentThreads') && state.scenario.videoComments) {
+    return json(200, { items: state.scenario.videoComments.map((text, i) => ({ snippet: { topLevelComment: { id: `scmt${i}`, snippet: { textDisplay: text, likeCount: 30 - i, authorDisplayName: 'Should Not Be Stored' } } } })) });
   }
   if (state.scenario) return json(200, { items: [] });
   if (path.endsWith('/search')) {

@@ -145,6 +145,66 @@ export function mentionsBrand(text: string, brand: string): boolean {
   return mentionsBrandLoosely(text, brand);
 }
 
+// ---------- Names written run together with the brand's letters ("COSRX") ----------
+
+/**
+ * Ordinary words that begin with a short brand's letters. Written in capitals inside a title ("THE COST OF...")
+ * they must not be read as another business. The list is short on purpose and covers the words a short name
+ * is most likely to meet; a word missing from it can only cause a page to be left out as "mixed", never a score change.
+ */
+const ORDINARY_WORDS = new Set([
+  'cost', 'costs', 'cosy', 'cosh', 'costa', 'cosmo', 'cosmos', 'cosmic', 'cosine', 'cosec',
+  'rocks', 'rocky', 'rocket',
+]);
+
+/** Endings that make a plural or another form of the same word, never another name. */
+const WORD_ENDINGS = new Set(['s', 'es', 'ed', 'er', 'ers', 'ing', 'ly']);
+
+/**
+ * For a short ambiguous name only (a single word of four letters or fewer): the words in the text that are the
+ * brand's letters with one to three capital letters or digits written straight on ("COSRX", "CosRX", "COSX").
+ * A word that continues in lower case ("Cost", "Cosmetics"), an ordinary word on the short list above, a plural
+ * or other ending, and the plain place and shop words that may follow a name ("COSUS", "COSSHOP") are not such names.
+ * Longer brand names are never examined here.
+ */
+export function runTogetherLookalikes(text: string, brand: string): string[] {
+  if (!isShortAmbiguousName(brand)) return [];
+  const letters = normalizeName(brand).replace(/ /g, '');
+  const found: string[] = [];
+  for (const match of fold(text).matchAll(/[\p{L}\p{N}]+/gu)) {
+    const word = match[0];
+    if (word.length <= letters.length || word.length > letters.length + 3) continue;
+    if (word.slice(0, letters.length).toLowerCase() !== letters) continue;
+    const extra = word.slice(letters.length);
+    if (!/^[\p{Lu}\p{N}]/u.test(extra)) continue; // the next letter is lower case: an ordinary word, not a fused name
+    const lower = word.toLowerCase();
+    const extraLower = extra.toLowerCase();
+    if (ORDINARY_WORDS.has(lower) || WORD_ENDINGS.has(extraLower) || AFFIXES_ANY_NAME.has(extraLower) || GENERIC_NAME_WORDS.has(extraLower)) continue;
+    if (!found.includes(word)) found.push(word);
+  }
+  return found;
+}
+
+export type Attribution = 'clear' | 'mixed' | 'other' | 'none';
+
+/**
+ * Whose is this text? For a short ambiguous name:
+ *  - clear: names the brand and no look-alike;
+ *  - mixed: names the brand AND a look-alike ("COS to COSRX", "COS vs Cos De Baha"), so what it says cannot be
+ *    attributed to the brand and it is unverified;
+ *  - other: names only a look-alike;
+ *  - none: names neither.
+ * For longer names the look-alike rules are not applied: the text is "clear" when it names the brand, otherwise "none".
+ */
+export function brandAttribution(text: string, brand: string): { state: Attribution; lookalikes: string[] } {
+  if (!isShortAmbiguousName(brand)) return { state: mentionsBrandLoosely(text, brand) ? 'clear' : 'none', lookalikes: [] };
+  const scan = scanShortName(text, brand);
+  const lookalikes = [...scan.lookalikes];
+  for (const fused of runTogetherLookalikes(text, brand)) if (!lookalikes.includes(fused)) lookalikes.push(fused);
+  if (scan.standalone > 0) return { state: lookalikes.length > 0 ? 'mixed' : 'clear', lookalikes };
+  return { state: lookalikes.length > 0 ? 'other' : 'none', lookalikes };
+}
+
 // ---------- Web domains ----------
 
 const SECOND_LEVEL_LABELS = new Set(['co', 'com', 'org', 'net', 'gov', 'edu', 'ac', 'or', 'ne', 'go']);
