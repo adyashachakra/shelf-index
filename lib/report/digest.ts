@@ -3,6 +3,7 @@ import 'server-only';
 import { readablePages, sourceLabel } from '../audit/evidence-builders';
 import type { JobData, JobMeta } from '../audit/job';
 import { sameBrand } from '../evidence/brand-match';
+import { brandNotRecognised } from '../evidence/identity';
 import { clip } from '../evidence/normalize';
 import { normalizeForMatch } from '../evidence/quotes';
 import { placementOf, verifiedRecommendations } from '../scoring/visibility';
@@ -64,13 +65,18 @@ export function describePlacement(placement: Placement): string {
 }
 
 function metricForDigest(metric: Metric): number | string {
+  if (metric.status === 'not_recognised') return 'not shown: the brand was not recognised in this category';
   return metric.status === 'scored' ? metric.score : `insufficient data (${metric.reason})`;
 }
 
 export function buildEvidenceIndex(data: JobData, core: Core): EvidenceIndex {
   const answers = new Map<string, GeminiAnswer>();
-  for (const answer of data.answers ?? []) if (answer.status === 'answered') answers.set(answer.id, answer);
-  if (data.signature && data.signature.status === 'answered') answers.set('GS', data.signature);
+  // Gemini's answers are about the brands it recommended. When it did not recognise the audited brand, nothing in
+  // them is evidence about that brand, so none of it can be cited by a comparison or a recommendation.
+  if (!brandNotRecognised(data.identity)) {
+    for (const answer of data.answers ?? []) if (answer.status === 'answered') answers.set(answer.id, answer);
+    if (data.signature && data.signature.status === 'answered') answers.set('GS', data.signature);
+  }
   const profile = data.profile && data.profile.recognized && data.profile.description !== '' ? data.profile : null;
 
   const audience = new Map<string, EvidenceItem>(core.items.map((item) => [item.id, item]));
@@ -158,13 +164,16 @@ export function buildDigest(meta: JobMeta, data: JobData, core: Core): Record<st
 
   const profile = data.profile;
   const signature = data.signature;
+  const notRecognised = brandNotRecognised(data.identity);
   return {
     scores: {
       gemini_api_recommendation_visibility: metricForDigest(core.visibility.metric),
       audience_perception: metricForDigest(core.perception.metric),
       content_gap_severity_higher_is_worse: metricForDigest(core.contentGap.metric),
     },
-    ai_model: {
+    ai_model: notRecognised
+      ? 'not used: Gemini did not recognise the audited brand in this category, so what it said in answer to the shopper questions concerns other brands and is not evidence about this one'
+      : {
       answers,
       description:
         profile && profile.recognized

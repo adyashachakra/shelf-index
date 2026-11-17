@@ -4,7 +4,9 @@ import { config } from '../../config';
 import { mentionsBrand } from '../../evidence/brand-match';
 import { clean, clip } from '../../evidence/normalize';
 import { detectSponsorship } from '../../evidence/sponsorship';
-import type { EvidenceItem } from '../../types';
+import { addSetAside } from '../../evidence/identity';
+import type { EvidenceItem, SetAsideEvidence } from '../../types';
+import { similarNameReason } from '../evidence-builders';
 import type { StageContext } from '../context';
 import type { YouTubeData } from '../job';
 
@@ -36,6 +38,14 @@ export async function runYouTube(ctx: StageContext): Promise<'done' | 'continue'
   const result: YouTubeData = { status: 'ok', videos: [], comments: [] };
   try {
     const found = await searchVideos(`${meta.brand} ${meta.categoryNoun} review`, 10);
+    // A video counts only if it names the brand itself, not a similar name ("COS RX" is not "COS").
+    const setAside: SetAsideEvidence[] = [];
+    for (const v of found) {
+      if (mentionsBrand(`${v.title} ${v.description}`, meta.brand)) continue;
+      const reason = similarNameReason(`${v.title} ${v.description}`, 'youtube.com', meta.brand);
+      if (reason !== null) addSetAside(setAside, { title: clip(clean(v.title), 120), url: `https://www.youtube.com/watch?v=${v.id}`, domain: 'youtube.com', reason });
+    }
+    if (setAside.length > 0) result.setAside = setAside;
     let relevant: YtVideo[] = found.filter((v) => mentionsBrand(`${v.title} ${v.description}`, meta.brand)).slice(0, MAX_VIDEOS);
 
     if (relevant.length > 0) {

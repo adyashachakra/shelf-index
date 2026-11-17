@@ -60,9 +60,11 @@ progress display, keeps every request short, and means a refresh or a closed tab
 an audit: nothing is lost and nothing is paid for twice.
 
 1. Prepare the eight shopper questions for the category
-2. Ask Gemini each question, one at a time, without naming the brand
-3. Ask Gemini what it knows about the brand
-4. Find customer discussions and independent reviews (Tavily)
+2. Ask Gemini what it knows about the brand in that category, and check who the brand is (see
+   "Who the brand is, and what happens when it is not recognised" below)
+3. Find customer discussions and independent reviews (Tavily); when Gemini did not recognise the
+   brand, the reviews search runs first because it is the only source of a verified website
+4. Ask Gemini each question, one at a time, without naming the brand
 5. Sample YouTube videos and top comments (official API)
 6. Label the evidence: who is speaking, what sentiment, which themes
 7. Read the brand's own website (pages a search surfaces)
@@ -70,6 +72,31 @@ an audit: nothing is lost and nothing is paid for twice.
 9. Compare with the top three competitors
 10. Find the disconnect and draft the fix list
 11. Calculate the scores and assemble the report
+
+### Who the brand is, and what happens when it is not recognised
+
+Before any expensive work, the audit settles which brand it is looking at, in the category the
+visitor chose. The form has no preselected category; the visitor picks one, sees a confirmation
+panel showing the brand and category, and only the separate "Start audit" button begins the audit.
+Correcting the category at that point uses no slot and no API request.
+
+- **Gemini recognises the brand** and the evidence agrees: the audit runs as before.
+- **Gemini does not recognise it, but a strictly verified official website exists:** the audit
+  goes on with a warning. The visibility metric is shown as "Brand not recognised in this
+  category." (never as 0/100), Gemini's answers are kept out of the evidence and the fix list,
+  confidence is capped at low, and the competitors table is relabelled "Brands Gemini recommended"
+  with no competitor sentiment searches and no brand-specific competitive advice.
+- **Neither:** the audit stops as "identity verification failed". It is not a completed audit,
+  it has no report, it cannot be resumed by reopening it, and the unused reservation is settled
+  with the existing mechanism. Search credits already spent are not given back; the daily and
+  visitor slots are returned only if no search credit was spent (the existing quota policy).
+- **A genuine zero** (Gemini knows the brand and never names it) is still a scored 0.
+
+"Strictly verified" means a domain equals the brand's name, or the name with one plain word such
+as `shop`, `store`, `us` or `official`. A name that merely contains the brand does not count:
+for COS, `cosrx.com`, `cosgramusa.com` and `cos-iq.com` are other businesses. Short names
+(four characters or fewer) get the strictest rules. Results found to use a look-alike name are
+set aside, never scored, and listed in the report under "Found but not counted".
 
 ---
 
@@ -442,10 +469,11 @@ These three corrections pass the simulated tests. Their own live run is the next
 | Patch 4: independence of price sources (press releases, parent-company material, brand site plus one independent source), expert collaboration vs endorsement vs recommendation | 13 tests | Real code, no services needed |
 | Patch 5: the cleanser, availability and dermatologist cases with the real quotes, source counts (unique sources versus excerpts), the builder credit spelling | 19 tests (including denied recommendations), plus a footer check on every rendered page | Real code, no services needed |
 | Patch 6: the brand-claim rule for the effectiveness, suitability, clinical and expert cases, questions of fact unaffected, earlier rules unchanged, scoring formula unchanged, no network in the rule | 15 tests (8 of them fail if the rule is switched off) | Real code, no services needed |
-| Saved reports across format changes: real format 2, 3, 4 and 5 reports open and the API returns exactly what was saved; nothing missing is invented; format 1 is not read; old cached reports are not reused | 10 tests | Real Redis, real route handler |
+| Brand identity: COS against COSRX, Cos De Baha, cos-IQ and cosgramusa.com; the original COS/Skincare failure replayed; stop, refund and no-resume behaviour; recognised and unrecognised-with-domain paths; genuine zero versus non-recognition; confidence; competitor labelling; unrelated evidence kept out of recommendations; form confirmation rules | 22 tests (the key ones fail if the rules are removed) | Real Redis; Gemini, Tavily and YouTube **simulated**, with invented reconstructions of the failing pages |
+| Saved reports across format changes: real format 2, 3, 4, 5 and 6 reports open and the API returns exactly what was saved; nothing missing is invented; format 1 is not read; old cached reports are not reused | 10 tests | Real Redis, real route handler |
 | TypeScript, engine and API routes | Strict compile, zero errors | Real compiler |
 | TypeScript, pages and components | Strict compile with stand-in typings for React, Next.js and Recharts | Partial locally; the real check is the Vercel build |
-| Every page renders: the example, an all-"insufficient data" report, a report produced by the engine in the tests, and real saved reports of formats 2, 3, 4 and 5 | Server-rendered to HTML and screenshotted at desktop and phone widths | Stand-ins for Next.js and Recharts |
+| Every page renders: the example, an all-"insufficient data" report, a report produced by the engine in the tests, and real saved reports of formats 2 to 6, and a report for a brand that was not recognised | Server-rendered to HTML and screenshotted at desktop and phone widths | Stand-ins for Next.js and Recharts |
 
 To run the tests yourself (optional, needs Node.js and a local Redis server on port 6399):
 `npm install`, then `npm test`.
@@ -500,6 +528,15 @@ To run the tests yourself (optional, needs Node.js and a local Redis server on p
 - The per-visitor limit uses the IP address, so people sharing a network share one allowance.
 - The request speed bump lives in server memory. A determined script could still use up the
   free Redis command allowance; the result would be a pause until the monthly reset, never a charge.
+- **Identity checks are heuristics.** The look-alike and domain rules are plain string checks with a short
+  built-in word list; they can wrongly reject a brand whose real site uses an unusual name, and they
+  will not recognise every look-alike (for example lowercase "cos rx" is left to the evidence
+  labeller). Whether a result is about the same business is a model judgement. Gemini not recognising
+  a brand can be a false negative, in which case the report says the brand was identified only from its
+  website address.
+- An audit stopped for identity still keeps its daily and visitor slot when the one website-check search
+  was paid for. That is the existing quota policy, not a new rule.
+- Reports saved before format 7 open as they were saved and say they predate the identity check.
 - Usage is small by design: a couple of new audits a day. This is a portfolio tool on free quotas.
 
 ## Roadmap (not in V1)

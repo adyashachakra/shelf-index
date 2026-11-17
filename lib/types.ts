@@ -28,7 +28,16 @@ export interface NotMeasuredMetric {
   status: 'not_measured';
   reason: string;
 }
-export type Metric = ScoredMetric | InsufficientMetric;
+/**
+ * The audit could not establish that the brand was recognised in the selected category, so a number
+ * would not mean what it appears to mean. This is NOT a zero: a genuine zero is a scored metric
+ * for a brand that was recognised and never named.
+ */
+export interface NotRecognisedMetric {
+  status: 'not_recognised';
+  reason: string;
+}
+export type Metric = ScoredMetric | InsufficientMetric | NotRecognisedMetric;
 export type MetricOrSkipped = Metric | NotMeasuredMetric;
 
 // ---------- Gemini answers ----------
@@ -142,6 +151,11 @@ export interface EvidenceLabel {
   relevant: boolean;
   voice: Voice;
   sentiment: Sentiment;
+  /**
+   * Whether the item is about the business the audit is about, not another business with a similar name.
+   * Only ever recorded as false (an item shown to be about something else); absent means "not in question".
+   */
+  sameBusiness?: boolean;
 }
 
 /** What a theme is about: one named product, the brand in general, or not clear from the evidence. */
@@ -407,6 +421,11 @@ export interface CompetitorRow {
 export interface CompetitorSection {
   rows: CompetitorRow[];
   note: string;
+  /**
+   * "recommended_brands": the audited brand was not identified, so these are only the brands Gemini
+   * recommended, not verified competitors. Absent in reports saved before format 7 (read as "competitors").
+   */
+  kind?: 'competitors' | 'recommended_brands';
 }
 
 // ---------- Synthesis ----------
@@ -508,11 +527,49 @@ export type OverallConfidence =
   | { status: 'stated'; level: ConfidenceLevel; limitedBy: string }
   | { status: 'not_stated'; reason: string };
 
+// ---------- Brand identity ----------
+
+/**
+ * How the audit established who the brand is in the selected category.
+ *   recognised        Gemini recognised the brand in this category
+ *   domain_verified   Gemini did not, but a web domain that strictly matches the name was found
+ *   unchecked         Gemini's description could not be retrieved, so identity was not checked
+ */
+export type IdentityStatus = 'recognised' | 'domain_verified' | 'unchecked';
+
+/** Evidence the audit found but did not use, kept so the person can see what was set aside and why. */
+export interface SetAsideEvidence {
+  title: string;
+  url: string;
+  domain: string;
+  reason: string;
+}
+
+export interface IdentityData {
+  /** "failed" appears only on an audit that stopped (it never produces a report). */
+  status: IdentityStatus | 'failed';
+  geminiRecognised: boolean | null;
+  /** A domain whose registered name equals the brand name (apart from plain affixes such as "shop"). */
+  verifiedDomain: string | null;
+  reason: string;
+}
+
+export interface IdentitySection {
+  status: IdentityStatus;
+  geminiRecognised: boolean | null;
+  verifiedDomain: string | null;
+  /** What this means for the reader, in one or two sentences. */
+  summary: string;
+  setAside: SetAsideEvidence[];
+  /** How many items were set aside in total (the list above is capped). */
+  setAsideCount: number;
+}
+
 // ---------- The report ----------
 
 export interface Report {
-  /** 4 for new reports. Reports saved as 3 are still read: the fields added in 4 are optional. */
-  version: 2 | 3 | 4 | 5 | 6;
+  /** 7 for new reports. Older reports are still read: every field added since is optional. */
+  version: 2 | 3 | 4 | 5 | 6 | 7;
   id: string;
   /** True only for the bundled example with a fictional brand. */
   illustrative?: boolean;
@@ -524,6 +581,8 @@ export interface Report {
   tier: Tier;
   overallConfidence: OverallConfidence;
   visibility: { metric: Metric; detail: VisibilityDetail };
+  /** Format 7 and later. Whether the audit could establish who the brand is in this category. */
+  identity?: IdentitySection;
   brandProfile: BrandProfile | null;
   signatureAnswer: GeminiAnswer | null;
   answers: GeminiAnswer[];
@@ -544,7 +603,12 @@ export interface Report {
 
 // ---------- Progress (what the browser sees while an audit runs) ----------
 
-export type JobStatus = 'running' | 'paused' | 'complete' | 'failed';
+/**
+ * "identity_failed": the audit stopped on purpose because the brand could not be identified in the
+ * selected category (an audit that never started its expensive stages). It is final: reopening it
+ * never resumes it.
+ */
+export type JobStatus = 'running' | 'paused' | 'complete' | 'failed' | 'identity_failed';
 
 export interface StageSnapshot {
   id: string;

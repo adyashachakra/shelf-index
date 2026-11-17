@@ -30,7 +30,7 @@ export function MetricValue({ metric, size = 'md' }: { metric: MetricOrSkipped; 
   }
   return (
     <span className={`ui font-semibold ${size === 'lg' ? 'text-xl' : 'text-[0.95rem]'}`}>
-      {metric.status === 'insufficient' ? 'Insufficient data' : 'Not measured'}
+      {metric.status === 'insufficient' ? 'Insufficient data' : metric.status === 'not_recognised' ? 'Brand not recognised in this category.' : 'Not measured'}
     </span>
   );
 }

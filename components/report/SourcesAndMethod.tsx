@@ -128,6 +128,34 @@ export function SourcesAndMethod({ report }: { report: Report }) {
         </div>
       ) : null}
 
+      {report.identity ? (
+        <div className="mt-8 max-w-3xl">
+          <h3 className="text-lg font-semibold">Who the brand was established to be</h3>
+          <p className="ui mt-2 text-[0.95rem]">{report.identity.summary}</p>
+          {report.identity.setAsideCount > 0 ? (
+            <div className="mt-4">
+              <h4 className="ui text-[0.98rem] font-semibold">
+                Found but not counted ({report.identity.setAside.length === report.identity.setAsideCount ? report.identity.setAsideCount : `${report.identity.setAside.length} listed of ${report.identity.setAsideCount}`})
+              </h4>
+              <p className="ui mt-1 text-[0.9rem] text-ink-soft">
+                These results used a name or web address similar to {report.brand} but were not shown to be about it, so they are not in any score, theme, comparison or recommendation.
+              </p>
+              <ul className="ui mt-2 space-y-2 text-[0.9rem]">
+                {report.identity.setAside.map((entry) => (
+                  <li key={entry.url}>
+                    <SourceLink url={entry.url} illustrative={report.illustrative}>
+                      {entry.title || entry.url}
+                    </SourceLink>
+                    <span className="text-ink-faint"> {entry.domain}</span>
+                    <span className="block text-ink-soft">{entry.reason}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+
       <h3 className="mt-10 text-xl font-semibold">How the scores are calculated</h3>
       <div className="mt-3 max-w-3xl space-y-4 text-[0.98rem]">
         <p>

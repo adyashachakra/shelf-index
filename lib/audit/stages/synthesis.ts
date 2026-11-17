@@ -1,9 +1,11 @@
 import 'server-only';
+import { brandNotRecognised } from '../../evidence/identity';
 import { asHypothesis, overclaims, stripSourceCounts, withoutOverclaim, withoutSourceCounts } from '../../evidence/overclaim';
 import { normalizeForMatch } from '../../evidence/quotes';
 import { computeCore } from '../../report/core';
 import { buildDigest, buildEvidenceIndex, describeEvidenceBase, siteStatements } from '../../report/digest';
 import type { StageContext } from '../context';
+import { readablePages } from '../evidence-builders';
 import type { SynthesisData } from '../job';
 import { fixesPrompt, synthesisPrompt } from '../prompts';
 
@@ -24,6 +26,14 @@ export async function runSynthesis(ctx: StageContext): Promise<'done' | 'continu
   const core = computeCore(meta, data);
   const index = buildEvidenceIndex(data, core);
   const digest = buildDigest(meta, data, core);
+
+  // A brand Gemini did not recognise, with no verified audience or website evidence about it, leaves nothing for a
+  // comparison or a recommendation to rest on. The two requests are not made (so none is spent), and nothing is invented.
+  if (brandNotRecognised(data.identity) && core.items.length === 0 && readablePages(data.site?.pages ?? []).length === 0) {
+    await ctx.save('synthesis', { phase: 'done', insightsAvailable: false, disagreements: [], insights: [], fixesAvailable: false, fixes: [] });
+    ctx.note('synthesis', 'Skipped: no verified evidence about the brand');
+    return 'done';
+  }
 
   let state: SynthesisData;
   if (!data.synthesis) {

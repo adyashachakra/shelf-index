@@ -2,7 +2,39 @@
 // responses. These are SIMULATED. They prove the engine's logic, not that the live APIs behave
 // the same way. Nothing in this file ever contacts a real service.
 
+/**
+ * A different brand than the default one, for tests of brand identity. Everything here is invented
+ * (or a reconstruction of the shape of the real COS / Skincare failure); nothing is fetched from anywhere.
+ */
+export interface Scenario {
+  brand: string;
+  /** What Gemini's own description of the brand says (recognised in this category, or not). */
+  recognised: boolean;
+  /** The domain Gemini names for a recognised brand. */
+  officialDomain?: string;
+  /** Results returned for the open-web reviews search. */
+  reviews: { title: string; url: string; content: string }[];
+  /** Results returned for the Reddit search. */
+  reddit?: { title: string; url: string; content: string }[];
+  /** Brands Gemini recommends in every shopper answer. The audited brand is not among them unless listed. */
+  recommends: string[];
+  /** The domain whose site-restricted searches return pages (the brand's own site). */
+  siteDomain?: string;
+  /** The reader's verdict on whether an evidence item is about the audited business. Default: "yes". */
+  sameBusiness?: (id: string) => 'yes' | 'no' | 'unclear';
+  /** Evidence ids that the recommendations try to cite. */
+  fixIds?: string[];
+  /** Titles of YouTube videos returned by the search. */
+  videoTitles?: string[];
+}
+
 export interface MockState {
+  /** When set, the services answer as if the audited brand were this one. */
+  scenario: Scenario | null;
+  /** Answer every Tavily request with a rate limit (rejected before any credit is charged). */
+  tavilyRateLimited: boolean;
+  /** Every Tavily query received, in order. */
+  tavilyQueries: string[];
   geminiCalls: number;
   tavilyCalls: number;
   youtubeCalls: number;
@@ -19,6 +51,9 @@ export interface MockState {
 
 export function newMockState(): MockState {
   return {
+    scenario: null,
+    tavilyRateLimited: false,
+    tavilyQueries: [],
     geminiCalls: 0,
     tavilyCalls: 0,
     youtubeCalls: 0,
@@ -166,8 +201,38 @@ function siteAnalysis(b: Record<string, unknown>): unknown {
   };
 }
 
-function geminiResponse(system: string, user: string): unknown {
-  if (system.includes('answering a shopper')) return askAnswer(user);
+function scenarioPages(brand: string, domain: string): [string, string, string][] {
+  return [
+    [`https://www.${domain}/`, `${brand}: home`, `${brand} makes clothing for everyday wear, with a range of coats, knitwear, shirts and trousers, and the pieces are described here in plain terms for each collection.`],
+    [`https://www.${domain}/women`, `${brand} women`, `The ${brand} women's collection includes coats, dresses, knitwear and trousers in a restrained palette, with sizing guidance and care instructions on every product page.`],
+    [`https://www.${domain}/help`, `${brand} help and delivery`, `${brand} delivery usually takes three to five working days, and returns are accepted for thirty days after the order arrives, with details on this page.`],
+  ];
+}
+
+function geminiResponse(system: string, user: string, state: MockState): unknown {
+  const scenario = state.scenario;
+  if (system.includes('answering a shopper')) {
+    if (scenario) {
+      const names = scenario.recommends;
+      return { answer: `I would look at ${names.join(', ')}.`, recommendations: recs(...names), also_mentioned: [] };
+    }
+    return askAnswer(user);
+  }
+  if (scenario && system.includes('Describe a brand using only what you already know')) {
+    return scenario.recognised
+      ? {
+          recognized: true,
+          description: `${scenario.brand} is a clothing brand known for coats and knitwear.`,
+          known_for: ['Coats'],
+          products: ['Coats', 'Knitwear'],
+          price_positioning: 'mid',
+          official_domain: scenario.officialDomain ?? '',
+          strengths: [],
+          criticisms: [],
+          claims: [],
+        }
+      : { recognized: false, description: '', known_for: [], products: [], price_positioning: 'unknown', official_domain: '', strengths: [], criticisms: [], claims: [] };
+  }
   if (system.includes('Describe a brand using only what you already know')) {
     return {
       recognized: true,
@@ -185,7 +250,14 @@ function geminiResponse(system: string, user: string): unknown {
     };
   }
   const b = blocks(user);
-  if (system.includes('reading what people say about a brand')) return labelsFor((b.EVIDENCE as Item[]) ?? []);
+  if (system.includes('reading what people say about a brand')) {
+    const items = (b.EVIDENCE as Item[]) ?? [];
+    const out = labelsFor(items) as { labels: Record<string, unknown>[] };
+    // The reader answers "same_business" for every item, as the prompt asks; the scenario decides what it says.
+    if (!system.includes('"same_business"')) throw new Error('The labelling instruction must ask for "same_business"');
+    out.labels = out.labels.map((label) => ({ ...label, same_business: scenario?.sameBusiness ? scenario.sameBusiness(String(label.id)) : 'yes' }));
+    return out;
+  }
   if (system.includes("auditing a brand's own website")) {
     const ids = [...((b.QUESTIONS as { id: string }[]) ?? []), ...((b.CONCERNS as { id: string }[]) ?? [])].map((entry) => entry.id);
     if (!system.includes(`exactly ${ids.length} entries`) || !system.includes(ids.join(', '))) {
@@ -229,6 +301,9 @@ function geminiResponse(system: string, user: string): unknown {
     };
   }
   if (system.includes('prioritised fix list')) {
+    if (scenario?.fixIds) {
+      return { fixes: scenario.fixIds.map((id, index) => ({ action: `Address what customers say in ${id}.`, why: `Evidence ${id} describes it.`, priority: index + 1, effort: 'Low', expected_impact: 'A later audit could show whether this changes.', evidence_ids: [id] })) };
+    }
     return {
       fixes: [
         // Overclaims on purpose: a cause, a business outcome and a promised result. None may reach the report.
@@ -256,10 +331,23 @@ function reddit(n: number) {
   return texts.slice(0, n).map((content, i) => ({ title: `Reddit thread ${i + 1}`, url: `https://www.reddit.com/r/SkincareAddiction/comments/abc${i}/thread_${i}/`, content, score: 0.9 - i * 0.05, raw_content: null }));
 }
 
-function tavilyResponse(body: Record<string, unknown>): unknown {
+function tavilyResponse(body: Record<string, unknown>, state: MockState): unknown {
   const include = (body.include_domains as string[] | undefined) ?? [];
   const query = String(body.query ?? '');
+  const scenario = state.scenario;
   let results: unknown[];
+  if (scenario) {
+    const shape = (rows: { title: string; url: string; content: string }[]) => rows.map((row, i) => ({ ...row, score: 0.8 - i * 0.02, raw_content: null }));
+    if (include.includes('reddit.com')) results = shape(scenario.reddit ?? []);
+    else if (scenario.siteDomain && include.includes(scenario.siteDomain)) {
+      results = scenarioPages(scenario.brand, scenario.siteDomain).map(([url, title, content], i) => ({ title, url, content, score: 0.8 - i * 0.05, raw_content: `[Home](/) [Shop](/shop)\n\n# ${title}\n\n${content}` }));
+    } else if (query.includes('review honest opinion forum')) results = shape(scenario.reviews);
+    else if (query.includes('reviews honest opinions')) {
+      const name = query.split(` clothing`)[0];
+      results = shape(Array.from({ length: 4 }, (_, i) => ({ title: `${name} review ${i + 1}`, url: `https://comp${i}.example.org/${encodeURIComponent(name)}/${i}`, content: `${name} has been reliable and worth the price according to this long-term reviewer of the brand.` })));
+    } else results = [];
+    return { query, results, response_time: 0.4, usage: { credits: 1 }, request_id: 'mock' };
+  }
   if (include.includes('reddit.com')) {
     results = reddit(7);
   } else if (include.includes('glowwell.com')) {
@@ -310,6 +398,10 @@ function youtubeResponse(url: URL, state: MockState): Response {
     return json(403, { error: { code: 403, message: 'quota', errors: [{ reason: 'quotaExceeded', domain: 'youtube.quota' }] } });
   }
   const path = url.pathname;
+  if (state.scenario && path.endsWith('/search')) {
+    return json(200, { items: (state.scenario.videoTitles ?? []).map((title, i) => ({ id: { videoId: `sv${i}` }, snippet: { title, description: 'A video', channelTitle: 'Creator' } })) });
+  }
+  if (state.scenario) return json(200, { items: [] });
   if (path.endsWith('/search')) {
     return json(200, {
       items: [
@@ -379,7 +471,7 @@ export function installMockFetch(state: MockState, passthroughPrefix: string): (
         return json(503, { error: { code: 503, status: 'UNAVAILABLE', message: 'The model is overloaded.' } });
       }
       return json(200, {
-        candidates: [{ content: { role: 'model', parts: [{ text: JSON.stringify(geminiResponse(system, user)) }] }, finishReason: 'STOP' }],
+        candidates: [{ content: { role: 'model', parts: [{ text: JSON.stringify(geminiResponse(system, user, state)) }] }, finishReason: 'STOP' }],
         usageMetadata: { promptTokenCount: 10, candidatesTokenCount: 10 },
         modelVersion: 'gemini-3.5-flash-lite',
       });
@@ -388,11 +480,13 @@ export function installMockFetch(state: MockState, passthroughPrefix: string): (
     if (parsed.hostname === 'api.tavily.com') {
       state.tavilyCalls += 1;
       state.seenAuthHeaders.push(headers.get('authorization') ?? '');
+      state.tavilyQueries.push(String((JSON.parse(String(init?.body ?? '{}')) as Record<string, unknown>).query ?? ''));
+      if (state.tavilyRateLimited) return json(429, { detail: { error: 'Too many requests.' } });
       if (state.tavilyQuotaExhausted) return json(432, { detail: { error: 'This request exceeds your plan usage limit.' } });
       const body = JSON.parse(String(init?.body ?? '{}')) as Record<string, unknown>;
       if (body.search_depth !== 'basic') throw new Error('Searches must use basic depth (1 credit)');
       if (body.auto_parameters === true) throw new Error('auto_parameters must stay off');
-      return json(200, tavilyResponse(body));
+      return json(200, tavilyResponse(body, state));
     }
 
     if (parsed.hostname === 'www.googleapis.com' && parsed.pathname.startsWith('/youtube/v3/')) {

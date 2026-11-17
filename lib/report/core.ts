@@ -1,6 +1,7 @@
 import 'server-only';
 import { audienceItems, readablePages } from '../audit/evidence-builders';
 import type { JobData, JobMeta } from '../audit/job';
+import { brandNotRecognised, capConfidence } from '../evidence/identity';
 import { clip } from '../evidence/normalize';
 import { isLeftOut } from '../evidence/relevance';
 import { findStatedPricePositions, questionPriceTier, questionTierPhrase, sourceIndependence, sourceSiteKey, tierPhrase, tiersConflict, tierWordsIn } from '../evidence/price';
@@ -225,6 +226,7 @@ const LOWER: Record<ConfidenceLevel, ConfidenceLevel> = { high: 'medium', medium
 function contentGapMetric(metric: Metric, leftOut: number, total: number): Metric {
   if (leftOut === 0) return metric;
   const assessed = total - leftOut;
+  if (metric.status === 'not_recognised') return metric;
   if (metric.status === 'insufficient') {
     return assessed < MIN_CHECKLIST_ITEMS && total >= MIN_CHECKLIST_ITEMS
       ? {
@@ -275,11 +277,24 @@ function relevanceFields(coverage: NonNullable<JobData['siteAnalysis']>['coverag
 export function computeCore(meta: JobMeta, data: JobData): Core {
   const answers = data.answers ?? [];
   const outOfRange = outOfRangeQuestions(meta.brand, data);
-  const visibility = scoreVisibility({
+  const scoredVisibility = scoreVisibility({
     brand: meta.brand,
     answers,
     outOfRange: new Map([...outOfRange].map(([questionId, exclusion]) => [questionId, exclusion.reason])),
   });
+  // When Gemini did not recognise the brand in this category, "named in 0 of 8 answers" would read as a verified
+  // absence from Gemini's recommendations. It is not: the brand was never established. No number is shown, and a
+  // genuine zero (a recognised brand that was never named) stays a scored zero.
+  const identityStatus = data.identity?.status;
+  const visibility: Core['visibility'] = brandNotRecognised(data.identity)
+    ? {
+        detail: scoredVisibility.detail,
+        metric: {
+          status: 'not_recognised',
+          reason: `Gemini did not recognise ${meta.brand} in the ${meta.categoryLabel} category, so how often it recommends the brand cannot be measured here. This is not a score of 0: a 0 would suggest Gemini was shown to leave the brand out, and that was not established.`,
+        },
+      }
+    : { ...scoredVisibility, metric: capConfidence(scoredVisibility.metric, identityStatus) };
   const countedQuestionIds = new Set(
     visibility.detail.rows.filter((r) => r.state === 'counted').map((r) => r.questionId),
   );
@@ -308,7 +323,7 @@ export function computeCore(meta: JobMeta, data: JobData): Core {
       'A theme is listed only when at least two separate items of evidence show it, which is why fewer than three may appear.';
   }
   const perception: PerceptionSection = {
-    metric: perceptionMetric,
+    metric: capConfidence(perceptionMetric, identityStatus),
     detail,
     praise: labels?.praise ?? [],
     complaints: labels?.complaints ?? [],
@@ -375,16 +390,19 @@ export function computeCore(meta: JobMeta, data: JobData): Core {
   const scoredChecklist = checklist.filter((item) => !isLeftOut(item));
   const leftOut = checklist.length - scoredChecklist.length;
   const contentGap: ContentGapSection = {
-    metric: contentGapMetric(
-      scoreContentGap({
-        domain: site?.domain ?? null,
-        pagesRead: pages.length,
-        sections,
-        analysisAvailable: analysis?.available === true,
-        checklist: scoredChecklist,
-      }),
-      leftOut,
-      checklist.length,
+    metric: capConfidence(
+      contentGapMetric(
+        scoreContentGap({
+          domain: site?.domain ?? null,
+          pagesRead: pages.length,
+          sections,
+          analysisAvailable: analysis?.available === true,
+          checklist: scoredChecklist,
+        }),
+        leftOut,
+        checklist.length,
+      ),
+      identityStatus,
     ),
     detail: {
       domain: site?.domain ?? null,

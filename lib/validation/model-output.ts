@@ -22,6 +22,17 @@ const idText = z
 
 const flag = z.preprocess((v) => v === true || v === 'true' || v === 1, z.boolean());
 
+/** "yes" | "no" | "unclear"; anything else, or nothing at all, is "not answered" (undefined), never read as a "no". */
+const sameBusiness = z.preprocess(
+  (v) => {
+    if (v === true) return 'yes';
+    if (v === false) return 'no';
+    if (typeof v === 'string' && ['yes', 'no', 'unclear'].includes(v.trim().toLowerCase())) return v.trim().toLowerCase();
+    return undefined;
+  },
+  z.enum(['yes', 'no', 'unclear']).optional(),
+);
+
 /** Keep the valid entries of an array and silently drop malformed ones. */
 function lenientArray<T extends z.ZodTypeAny>(item: T, max: number) {
   return z
@@ -93,7 +104,7 @@ const themeSchema = z.object({
 
 export const LabelsSchema = z.object({
   labels: lenientArray(
-    z.object({ id: idText.refine((s) => s.length > 0), relevant: flag, voice, sentiment }),
+    z.object({ id: idText.refine((s) => s.length > 0), relevant: flag, voice, sentiment, same_business: sameBusiness }),
     120,
   ),
   praise_themes: lenientArray(themeSchema, 3),

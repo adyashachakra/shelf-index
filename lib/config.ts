@@ -41,17 +41,20 @@ export const INFLIGHT_TTL_SECONDS = 26 * 60 * 60;
  * Bump this whenever the shape of a saved report, or a rule that changes its verdicts, changes.
  * New reports are saved under this version, and a repeat audit never reuses a report saved under an
  * older one (so an audit repeated after a rule change runs again under the new rules).
+ *
+ * 7: audits now settle which brand they are about before researching it. Without this bump the cached
+ * format 6 report for COS / Skincare (a report about look-alike brands) would be handed to a repeat audit.
  */
-export const REPORT_FORMAT_VERSION = 6;
+export const REPORT_FORMAT_VERSION = 7;
 /**
- * Saved-report versions that can still be OPENED, newest first. Versions 3 to 6 only differ by
+ * Saved-report versions that can still be OPENED, newest first. Versions 3 to 7 only differ by
  * optional fields and by the rules that produced the verdicts, and the report pages treat every
  * newer field as optional, so older links keep working until they expire. Version 2 (the first
  * V1.1 preview) has the same overall shape and is opened as it was saved: nothing missing is filled
  * in. Version 1 (V1.0) has a different shape and cannot be rendered by these pages: V1.0 reports
  * stay on the original deployment.
  */
-export const READABLE_REPORT_VERSIONS: readonly number[] = [6, 5, 4, 3, 2];
+export const READABLE_REPORT_VERSIONS: readonly number[] = [7, 6, 5, 4, 3, 2];
 /** Share of the configured per-minute limit the app allows itself to use. */
 export const GEMINI_RPM_HEADROOM = 0.8;
 

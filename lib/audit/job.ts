@@ -15,6 +15,7 @@ import type {
   EvidenceLabel,
   FixItem,
   GeminiAnswer,
+  IdentityData,
   JobSnapshot,
   JobStatus,
   PositioningStatement,
@@ -22,6 +23,7 @@ import type {
   ProductLine,
   QuoteRef,
   SearchLogEntry,
+  SetAsideEvidence,
   SitePage,
   Theme,
   Tier,
@@ -33,9 +35,9 @@ import type {
 
 export type StageId =
   | 'questions'
-  | 'ask'
   | 'profile'
   | 'audience'
+  | 'ask'
   | 'youtube'
   | 'perception'
   | 'website'
@@ -46,9 +48,11 @@ export type StageId =
 
 export const STAGE_ORDER: { id: StageId; label: (brand: string) => string }[] = [
   { id: 'questions', label: () => 'Preparing the audit' },
-  { id: 'ask', label: () => 'Asking Gemini 8 shopper questions, one at a time' },
+  // The brand is identified BEFORE the eight shopper questions and the research stages, so an audit about a
+  // brand that cannot be identified in the selected category stops while it has spent almost nothing.
   { id: 'profile', label: (brand) => `Asking Gemini what it knows about ${brand}` },
-  { id: 'audience', label: () => 'Finding customer discussions and independent reviews' },
+  { id: 'audience', label: () => 'Checking the brand, then finding customer discussions and independent reviews' },
+  { id: 'ask', label: () => 'Asking Gemini 8 shopper questions, one at a time' },
   { id: 'youtube', label: () => 'Sampling YouTube videos and comments' },
   { id: 'perception', label: () => 'Reading the evidence for sentiment and themes' },
   { id: 'website', label: () => "Reading the brand's own website" },
@@ -90,9 +94,13 @@ export interface JobMeta {
 export interface AudienceData {
   discussionsDone: boolean;
   reviewsDone: boolean;
+  /** False when the reviews search could not run (so "no website found" would overstate what was checked). */
+  reviewsSearched?: boolean;
   items: EvidenceItem[];
-  /** Domains that look like the brand's own site, seen in search results. */
+  /** Domains whose registered name is the brand's name (strict), seen in search results. */
   brandDomains: string[];
+  /** Results that used a similar name or address but were not counted as the brand. Format 7 and later. */
+  setAside?: SetAsideEvidence[];
 }
 
 export interface YouTubeData {
@@ -100,6 +108,8 @@ export interface YouTubeData {
   note?: string;
   videos: EvidenceItem[];
   comments: EvidenceItem[];
+  /** Videos whose title used a similar name but not the brand's own. */
+  setAside?: SetAsideEvidence[];
 }
 
 export interface LabelsData {
@@ -189,6 +199,8 @@ export interface JobData {
   answers?: GeminiAnswer[];
   /** null = Gemini's description could not be retrieved. */
   profile?: BrandProfile | null;
+  /** Who the brand was established to be in this category. Absent only on audits started before format 7. */
+  identity?: IdentityData;
   audience?: AudienceData;
   youtube?: YouTubeData;
   labels?: LabelsData;
@@ -217,6 +229,6 @@ export function snapshotOf(meta: JobMeta): JobSnapshot {
       note: meta.notes[stage.id],
     })),
     warnings: meta.warnings,
-    error: meta.status === 'failed' ? meta.error : meta.status === 'paused' ? meta.pausedReason : undefined,
+    error: meta.status === 'failed' || meta.status === 'identity_failed' ? meta.error : meta.status === 'paused' ? meta.pausedReason : undefined,
   };
 }

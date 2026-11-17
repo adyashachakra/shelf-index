@@ -14,6 +14,7 @@ import {
 import { findCachedReportId } from '../cache/reports';
 import { config, GEMINI_REQUESTS_PER_AUDIT, missingRequiredEnv, STAGE_BUDGET_MS, USER_MESSAGES } from '../config';
 import { brandKey } from '../evidence/brand-match';
+import { identityStopMessage } from '../evidence/identity';
 import { logEvent, safeErrorMessage } from '../log';
 import { dayKey } from '../quota/dates';
 import { hasDailyRoomForAudit, isGeminiDailyExhausted } from '../quota/gemini-limiter';
@@ -149,6 +150,32 @@ export async function startAudit(input: AuditInput, visitorIp: string): Promise<
   return { httpStatus: 200, body: { status: 'started', id } };
 }
 
+/**
+ * The brand could not be identified in the selected category, so the audit ends here as a failed
+ * identity check: not as a finished audit, and never to be resumed. The reservation is settled the same
+ * way as for any audit that fails: unused research credits go back to the month, and the daily and
+ * visitor slots go back too unless a search was already paid for (the existing quota policy; nothing
+ * is edited by hand). The visitor is told exactly which happened.
+ */
+async function stopOnIdentity(meta: JobMeta, reason: string): Promise<void> {
+  meta.status = 'identity_failed';
+  let slotsReturned = false;
+  try {
+    const settled = await settleReservation(meta.id, meta.keys, true);
+    slotsReturned = settled.slotsReturned;
+    await releaseInflight(meta.cacheKey, meta.id);
+  } catch (err) {
+    logEvent('identity_stop_cleanup_error', { error: safeErrorMessage(err) });
+  }
+  meta.error = identityStopMessage(reason, slotsReturned);
+  logEvent('audit_identity_failed', { stage: STAGE_ORDER[meta.stageIndex]?.id ?? 'unknown', slotsReturned, creditsSpent: meta.creditsSpent });
+}
+
+/** An audit in one of these states is over: advancing it again only reports where it ended. */
+function isFinished(status: JobMeta['status']): boolean {
+  return status === 'complete' || status === 'failed' || status === 'identity_failed';
+}
+
 async function failJob(meta: JobMeta, message: string): Promise<void> {
   meta.status = 'failed';
   meta.error = message;
@@ -175,7 +202,7 @@ export async function getSnapshot(id: string): Promise<JobSnapshot | null> {
 export async function advanceJob(id: string): Promise<JobSnapshot | null> {
   const first = await loadJob(id);
   if (!first) return null;
-  if (first.meta.status === 'complete' || first.meta.status === 'failed') return snapshotOf(first.meta);
+  if (isFinished(first.meta.status)) return snapshotOf(first.meta);
 
   const token = await acquireJobLock(id);
   if (!token) return { ...snapshotOf(first.meta), busy: true };
@@ -184,7 +211,7 @@ export async function advanceJob(id: string): Promise<JobSnapshot | null> {
     const job = await loadJob(id); // re-read inside the lock
     if (!job) return null;
     const { meta, data } = job;
-    if (meta.status === 'complete' || meta.status === 'failed') return snapshotOf(meta);
+    if (isFinished(meta.status)) return snapshotOf(meta);
 
     if (meta.status === 'paused') {
       if (await isGeminiDailyExhausted()) return { ...snapshotOf(meta), waitSeconds: 300, waitReason: meta.pausedReason };
@@ -211,6 +238,8 @@ export async function advanceJob(id: string): Promise<JobSnapshot | null> {
           meta.status = 'paused';
           meta.pausedReason = `${err.message} This audit keeps its progress: reopen this page after the reset and it will carry on.`;
           extra = { waitSeconds: 300, waitReason: meta.pausedReason };
+        } else if (err instanceof StopSignal && err.code === 'identity') {
+          await stopOnIdentity(meta, data.identity?.reason ?? err.message);
         } else if (err instanceof StopSignal) {
           await failJob(meta, err.message);
         } else {

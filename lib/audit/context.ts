@@ -35,8 +35,8 @@ export class PauseSignal extends Error {
 
 /** The audit cannot continue. The message is shown to the visitor. */
 export class StopSignal extends Error {
-  code: 'setup' | 'monthly' | 'no_answers' | 'error';
-  constructor(code: 'setup' | 'monthly' | 'no_answers' | 'error', message: string) {
+  code: 'setup' | 'monthly' | 'no_answers' | 'error' | 'identity';
+  constructor(code: 'setup' | 'monthly' | 'no_answers' | 'error' | 'identity', message: string) {
     super(message);
     this.name = 'StopSignal';
     this.code = code;

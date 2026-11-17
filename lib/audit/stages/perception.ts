@@ -3,6 +3,7 @@ import { verifiedPriceTier } from '../../evidence/price';
 import { normalizeForMatch, quoteAppearsIn } from '../../evidence/quotes';
 import { clip } from '../../evidence/normalize';
 import { stripSourceCounts, withoutOverclaim } from '../../evidence/overclaim';
+import { needsStrictIdentity } from '../../evidence/identity';
 import type { AdvocacyNote, Concern, EvidenceLabel, PricePosition, Theme, ThemeScope } from '../../types';
 import type { LabelsOutput } from '../../validation/model-output';
 import type { StageContext } from '../context';
@@ -38,11 +39,21 @@ export async function runPerception(ctx: StageContext): Promise<'done' | 'contin
     return 'done';
   }
 
+  // What is already known about who the brand is, so the reader can tell it from a business with a similar name.
+  const identity = ctx.data.identity;
+  const contextText =
+    ctx.data.profile?.recognized === true && ctx.data.profile.description !== ''
+      ? `Gemini describes the brand: ${clip(ctx.data.profile.description, 300)}`
+      : identity?.verifiedDomain
+        ? `The brand's official website is ${identity.verifiedDomain}.`
+        : '';
+
   const result = await ctx.gemini(
     labelEvidencePrompt(
       meta.brand,
       meta.categoryLabel,
       items.map((item) => ({ id: item.id, source: sourceLabel(item), title: clip(item.title, 120), text: item.text })),
+      contextText,
     ),
     'perception',
   );
@@ -56,10 +67,15 @@ export async function runPerception(ctx: StageContext): Promise<'done' | 'contin
   const byId = new Map(items.map((item) => [item.id, item]));
   const labels: EvidenceLabel[] = [];
   const seen = new Set<string>();
-  for (const label of result.data.labels) {
+  // An item the reader shows to be about a different business is recorded as such and counts as no evidence about
+  // this brand. "Unclear" is also set aside when the name is short or the brand is unknown to Gemini, because there
+  // an unverified item is more likely to be about something else than about the brand.
+  const strict = needsStrictIdentity(meta.brand, identity);
+  for (const { same_business: sameBusiness, ...label } of result.data.labels) {
     if (!byId.has(label.id) || seen.has(label.id)) continue;
     seen.add(label.id);
-    labels.push(label);
+    const different = sameBusiness === 'no' || (strict && sameBusiness === 'unclear');
+    labels.push(different ? { ...label, relevant: false, sameBusiness: false } : label);
   }
   const labelById = new Map(labels.map((l) => [l.id, l]));
   const relevant = (id: string) => labelById.get(id)?.relevant === true;

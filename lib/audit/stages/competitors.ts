@@ -1,4 +1,5 @@
 import 'server-only';
+import { brandNotRecognised } from '../../evidence/identity';
 import { canonicalUrl, clip, SOCIAL_DOMAINS } from '../../evidence/normalize';
 import { rankCompetitors } from '../../scoring/competitors';
 import type { EvidenceLabel } from '../../types';
@@ -23,13 +24,17 @@ export async function runCompetitors(ctx: StageContext): Promise<'done' | 'conti
   };
   if (!data.competitors) await ctx.save('competitors', state);
 
-  if (meta.tier !== 'full' || state.names.length === 0) {
+  // When the audited brand was not identified in this category, the brands Gemini recommended are not
+  // verified competitors of it, so no research is spent on them.
+  const notIdentified = brandNotRecognised(data.identity);
+  if (meta.tier !== 'full' || state.names.length === 0 || notIdentified) {
     if (!state.labeled) {
       state.labeled = true;
-      if (meta.tier !== 'full') state.note = 'Competitor sentiment was skipped to stay inside the monthly research budget.';
+      if (notIdentified) state.note = 'Competitor sentiment was not searched because the audited brand was not recognised in this category.';
+      else if (meta.tier !== 'full') state.note = 'Competitor sentiment was skipped to stay inside the monthly research budget.';
       await ctx.save('competitors', state);
     }
-    ctx.note('competitors', state.names.length > 0 ? state.names.join(', ') : 'No competitors named by Gemini');
+    ctx.note('competitors', state.names.length === 0 ? 'No competitors named by Gemini' : notIdentified ? `Brands Gemini recommended: ${state.names.join(', ')}` : state.names.join(', '));
     return 'done';
   }
 

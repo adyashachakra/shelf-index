@@ -24,12 +24,19 @@ const VERDICT_TEXT: Record<ClaimCheck['verdict'], string> = {
 export function AiVisibility({ report }: { report: Report }) {
   const detail = report.visibility.detail;
   const profile = report.brandProfile;
+  const notRecognised = report.visibility.metric.status === 'not_recognised';
   return (
     <Section
       id="ai-recommendations"
       title="What Gemini says"
       intro={`Eight shopper questions were put to ${report.model} through the Gemini API, one at a time, without naming ${report.brand} and without web search. This measures the Gemini API only. It does not reproduce the Gemini app, and it says nothing about other AI assistants.`}
     >
+      {report.visibility.metric.status === 'not_recognised' ? (
+        <p className="ui mb-4 max-w-3xl border-l-4 border-ink bg-surface px-4 py-3 text-[0.95rem]">
+          <span className="font-semibold">Brand not recognised in this category. </span>
+          {report.visibility.metric.reason} The table shows which brands Gemini recommended. The column for {report.brand} is not a measurement.
+        </p>
+      ) : null}
       <p className="ui text-[0.95rem]">
         {detail.counted} of {detail.planned} questions counted.
         {detail.failed > 0 ? ` ${detail.failed} had no answer from Gemini and are treated as missing data, not as zero.` : ''}
@@ -53,7 +60,7 @@ export function AiVisibility({ report }: { report: Report }) {
                   <a href={`#answer-${row.answerId}`}>{row.question}</a>
                 </td>
                 <td className="py-2.5 pr-4">
-                  {rowState(row)}
+                  {notRecognised && row.state === 'counted' ? 'Not compared' : rowState(row)}
                   {row.exclusionReason ? <span className="block text-ink-soft">{row.exclusionReason}</span> : null}
                   {row.failureReason ? <span className="block text-ink-soft">{row.failureReason}</span> : null}
                 </td>

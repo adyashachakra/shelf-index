@@ -64,7 +64,8 @@ export function AuditProgress({ id }: { id: string }) {
           router.replace(`/report/${id}`);
           return;
         }
-        if (snapshot.status === 'failed') return;
+        // Both are final: the audit is over, and nothing here asks the server to run it again.
+        if (snapshot.status === 'failed' || snapshot.status === 'identity_failed') return;
         if (snapshot.waitSeconds && snapshot.waitSeconds > 0) await wait(snapshot.waitSeconds);
         else if (snapshot.busy) await sleep(2500);
         else await sleep(350);
@@ -106,11 +107,14 @@ export function AuditProgress({ id }: { id: string }) {
 
   const done = snapshot.stages.filter((s) => s.state === 'done').length;
   const total = snapshot.stages.length;
+  const stopped = snapshot.status === 'failed' || snapshot.status === 'identity_failed';
 
   return (
     <div>
       <p className="ui text-[0.95rem] text-ink-soft">{snapshot.categoryLabel}</p>
-      <h1 className="mt-1 text-3xl font-bold sm:text-4xl">Auditing {snapshot.brand}</h1>
+      <h1 className="mt-1 text-3xl font-bold sm:text-4xl">
+        {snapshot.status === 'identity_failed' ? `Audit stopped: ${snapshot.brand}` : `Auditing ${snapshot.brand}`}
+      </h1>
       <p className="mt-3 max-w-2xl text-ink-soft">
         Each step is saved as it finishes. You can leave this page open; if you close it, the audit pauses and
         continues when this link is opened again.
@@ -118,7 +122,9 @@ export function AuditProgress({ id }: { id: string }) {
 
       <div className="ui mt-6" aria-live="polite">
         <p className="font-semibold">
-          {snapshot.status === 'failed'
+          {snapshot.status === 'identity_failed'
+            ? 'Stopped: brand not recognised in this category'
+            : snapshot.status === 'failed'
             ? 'The audit stopped'
             : snapshot.status === 'paused'
               ? 'Paused'
@@ -139,6 +145,16 @@ export function AuditProgress({ id }: { id: string }) {
         </p>
       ) : null}
 
+      {snapshot.status === 'identity_failed' ? (
+        <div className="ui mt-4 border-l-4 border-ink bg-surface px-4 py-3">
+          <p className="font-semibold">This is not a completed audit, and there is no report.</p>
+          <p className="mt-2 text-[0.95rem]">{snapshot.error}</p>
+          <p className="mt-2 text-[0.95rem]">
+            <Link href="/">Check the brand and category and start again</Link> or read the <Link href="/example">example report</Link>.
+          </p>
+        </div>
+      ) : null}
+
       {snapshot.status === 'failed' ? (
         <div className="ui mt-4 border-l-4 border-ink bg-surface px-4 py-3">
           <p className="font-semibold">{snapshot.error ?? 'The audit could not be completed.'}</p>
@@ -148,7 +164,7 @@ export function AuditProgress({ id }: { id: string }) {
         </div>
       ) : null}
 
-      {snapshot.status !== 'failed' && snapshot.waitSeconds ? (
+      {!stopped && snapshot.waitSeconds ? (
         <p className="ui mt-4 border-l-4 border-ink bg-surface px-4 py-3 text-[0.95rem]">
           {snapshot.waitReason ?? 'Waiting'}
           {countdown > 0 ? `. Continuing in ${countdown}s.` : '.'}
@@ -170,7 +186,7 @@ export function AuditProgress({ id }: { id: string }) {
               <p className={stage.state === 'pending' ? 'text-ink-faint' : stage.state === 'active' ? 'font-semibold' : ''}>
                 {stage.label}
                 <span className="sr-only">
-                  {stage.state === 'done' ? ' (done)' : stage.state === 'active' ? ' (in progress)' : ' (not started)'}
+                  {stage.state === 'done' ? ' (done)' : stage.state === 'active' ? (stopped ? ' (stopped here)' : ' (in progress)') : ' (not started)'}
                 </span>
               </p>
               {stage.note ? <p className="text-[0.9rem] text-ink-soft">{stage.note}</p> : null}

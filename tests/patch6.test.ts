@@ -183,7 +183,7 @@ test('the illustrative example report obeys the rule and its content gap numbers
       assert.equal(entry.brandClaim, true, entry.text);
     }
   }
-  assert.equal(EXAMPLE_REPORT.version, 6);
+  assert.equal(EXAMPLE_REPORT.version, 7);
   assert.equal(detail.points, gapPoints(detail.checklist));
   assert.equal(EXAMPLE_REPORT.contentGap.metric.status === 'scored' && EXAMPLE_REPORT.contentGap.metric.score, Math.round((100 * detail.points) / detail.checklist.length));
 });

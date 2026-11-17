@@ -10,6 +10,7 @@ const SECTIONS: SectionName[] = [
   'questions',
   'answers',
   'profile',
+  'identity',
   'audience',
   'youtube',
   'labels',

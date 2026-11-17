@@ -1,5 +1,5 @@
 import 'server-only';
-import { domainMatchesBrand, mentionsBrand } from '../../evidence/brand-match';
+import { domainBelongsToBrand, mentionsBrand } from '../../evidence/brand-match';
 import { cleanDomain, isSocialDomain } from '../../evidence/normalize';
 import { verifiedPriceTier } from '../../evidence/price';
 import { quoteAppearsIn } from '../../evidence/quotes';
@@ -63,9 +63,13 @@ export async function runWebsite(ctx: StageContext): Promise<'done' | 'continue'
         break;
       }
       const pages = resultsToSitePages(outcome.results, candidate, []);
+      // A site is used when its address strictly belongs to the brand, or when Gemini recognised the brand and
+      // the pages read name it. A name that merely contains the brand's name never establishes ownership, and
+      // for a brand Gemini does not know, only a strictly matching address is accepted.
       const looksRight =
         pages.length > 0 &&
-        (domainMatchesBrand(candidate, meta.brand) || pages.some((p) => mentionsBrand(`${p.title} ${p.text}`, meta.brand)));
+        (domainBelongsToBrand(candidate, meta.brand) ||
+          (data.profile?.recognized === true && pages.some((p) => mentionsBrand(`${p.title} ${p.text}`, meta.brand))));
       outcome.entry.kept = looksRight ? pages.length : 0;
       if (looksRight) {
         site.domain = candidate;

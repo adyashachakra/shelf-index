@@ -9,6 +9,12 @@ const ORDER: Record<ConfidenceLevel, number> = { low: 0, medium: 1, high: 2 };
 
 export function overallConfidence(metrics: { name: string; metric: Metric }[]): OverallConfidence {
   const missing = metrics.filter((m) => m.metric.status !== 'scored').map((m) => m.name);
+  if (metrics.some((m) => m.metric.status === 'not_recognised')) {
+    return {
+      status: 'not_stated',
+      reason: 'Not stated, because the brand was not recognised in this category. An overall confidence level would not mean anything here.',
+    };
+  }
   if (missing.length > 0) {
     return {
       status: 'not_stated',

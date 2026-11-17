@@ -1,6 +1,6 @@
 import 'server-only';
 import type { TavilyResult } from '../clients/tavily';
-import { domainMatchesBrand, mentionsBrand } from '../evidence/brand-match';
+import { domainBelongsToBrand, domainResemblesBrand, mentionsBrand, scanShortName, isShortAmbiguousName, mentionsBrandLoosely } from '../evidence/brand-match';
 import {
   canonicalUrl,
   clean,
@@ -12,12 +12,36 @@ import {
   stripBoilerplate,
 } from '../evidence/normalize';
 import { detectSponsorship } from '../evidence/sponsorship';
-import type { EvidenceItem, EvidenceKind, SitePage } from '../types';
+import type { EvidenceItem, EvidenceKind, SetAsideEvidence, SitePage } from '../types';
 import type { JobData } from './job';
+
+/**
+ * Why a result that used a similar name was not counted as the brand, or null when it did not use one.
+ * "COS RX" and "cos-IQ" are other names that begin with "cos"; "cosgramusa.com" only contains it.
+ */
+export function similarNameReason(text: string, domain: string, brand: string): string | null {
+  if (isShortAmbiguousName(brand)) {
+    const scan = scanShortName(text, brand);
+    if (scan.standalone === 0 && scan.lookalikes.length > 0) {
+      return `Names "${scan.lookalikes.slice(0, 2).join('" and "')}", which is a different name from "${brand}".`;
+    }
+  } else if (!mentionsBrand(text, brand) && mentionsBrandLoosely(text, brand)) {
+    return `The name appears only in a form that is not "${brand}".`;
+  }
+  if (domainResemblesBrand(domain, brand)) {
+    return `The web address ${domain} resembles the name but is not an exact match, so it was not treated as the brand's site.`;
+  }
+  return null;
+}
 
 /**
  * Turn search results into evidence about a brand. Keeps only results that name the brand,
  * drops social platforms and the brand's own domain, and removes duplicates.
+ *
+ * Identity is strict: a result counts only if its text names the brand itself (not a longer or
+ * similar name) and, for the brand's own domain, only if the domain's registered name IS the brand's
+ * name. Results that used a similar name are not counted, and are passed to onSetAside so the report
+ * can show what was left out and why.
  */
 export function resultsToEvidence(options: {
   results: TavilyResult[];
@@ -28,6 +52,7 @@ export function resultsToEvidence(options: {
   seenUrls: Set<string>;
   competitor?: string;
   onBrandDomain?: (domain: string) => void;
+  onSetAside?: (entry: SetAsideEvidence) => void;
   /** Keep pages from the brand's own domain (useful when checking facts, not when gauging opinion). */
   allowBrandDomain?: boolean;
 }): EvidenceItem[] {
@@ -36,14 +61,20 @@ export function resultsToEvidence(options: {
     if (!isHttpUrl(result.url)) continue;
     const domain = domainOf(result.url);
     if (domain === '' || isSocialDomain(domain)) continue;
-    if (domainMatchesBrand(domain, options.brand)) {
-      options.onBrandDomain?.(domain);
-      if (!options.allowBrandDomain) continue; // the brand's own pages are not independent evidence
-    }
     const title = clean(result.title);
     const text = clip(clean(result.content), 1100);
+    const named = mentionsBrand(`${title} ${text}`, options.brand);
+    if (domainBelongsToBrand(domain, options.brand)) {
+      // A page on the brand's own address that also names the brand is what establishes the address.
+      if (named) options.onBrandDomain?.(domain);
+      if (!options.allowBrandDomain) continue; // the brand's own pages are not independent evidence
+    }
     if (text.length < 40) continue;
-    if (!mentionsBrand(`${title} ${text}`, options.brand)) continue;
+    if (!named) {
+      const reason = similarNameReason(`${title} ${text}`, domain, options.brand);
+      if (reason !== null) options.onSetAside?.({ title: clip(title, 120), url: result.url, domain, reason });
+      continue;
+    }
     const key = canonicalUrl(result.url);
     if (options.seenUrls.has(key)) continue;
     options.seenUrls.add(key);
@@ -102,7 +133,20 @@ export function audienceItems(data: JobData): EvidenceItem[] {
   const reviews = fromSearch.filter((i) => i.kind === 'review').slice(0, 10);
   const videos = (data.youtube?.videos ?? []).slice(0, 4);
   const comments = (data.youtube?.comments ?? []).slice(0, 32);
-  return [...discussions, ...reviews, ...videos, ...comments];
+  const all = [...discussions, ...reviews, ...videos, ...comments];
+  // Once the evidence has been read, an item shown to be about a different business with a similar name is
+  // not evidence about this brand: it is out of the scores, the themes, the competitor comparison and the fixes.
+  const different = new Set((data.labels?.labels ?? []).filter((label) => label.sameBusiness === false).map((label) => label.id));
+  return different.size === 0 ? all : all.filter((item) => !different.has(item.id));
+}
+
+/** Items the reading of the evidence showed to be about a different business, for the diagnostics section. */
+export function differentBusinessItems(data: JobData): EvidenceItem[] {
+  const different = new Set((data.labels?.labels ?? []).filter((label) => label.sameBusiness === false).map((label) => label.id));
+  if (different.size === 0) return [];
+  const fromSearch = data.audience?.items ?? [];
+  const everything = [...fromSearch, ...(data.youtube?.videos ?? []), ...(data.youtube?.comments ?? [])];
+  return everything.filter((item) => different.has(item.id));
 }
 
 export function sourceLabel(item: EvidenceItem): string {

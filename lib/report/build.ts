@@ -1,9 +1,10 @@
 import 'server-only';
-import { readablePages } from '../audit/evidence-builders';
+import { differentBusinessItems, readablePages } from '../audit/evidence-builders';
 import type { JobData, JobMeta } from '../audit/job';
 import { QUESTION_BANK_VERSION } from '../audit/questions';
 import { config, GEMINI_REQUESTS_PER_AUDIT } from '../config';
 import { mostCommonCasing } from '../evidence/brand-match';
+import { addSetAside, brandNotRecognised, identitySection } from '../evidence/identity';
 import { clip } from '../evidence/normalize';
 import { overallConfidence } from '../scoring/confidence';
 import { rankCompetitors, visibilityOverQuestions } from '../scoring/competitors';
@@ -19,6 +20,7 @@ import type {
   Metric,
   MetricOrSkipped,
   Report,
+  SetAsideEvidence,
 } from '../types';
 import { computeCore, type Core } from './core';
 import { buildEvidenceIndex, describePlacement, siteStatements, type EvidenceIndex } from './digest';
@@ -53,10 +55,15 @@ function competitorSection(meta: JobMeta, data: JobData, core: Core): Competitor
     },
   ];
 
+  // When Gemini did not recognise the audited brand, the brands it recommended are not verified competitors of it.
+  // They are listed as what they are, with no comparison drawn and no sentiment searched.
+  const notIdentified = brandNotRecognised(data.identity);
   for (const name of names) {
     const v = visibilityOverQuestions(name, answers, core.countedQuestionIds);
     let visibility: Metric;
-    if (brandVisibility.status !== 'scored' || v.score === null || v.counted < MIN_COUNTED_QUESTIONS) {
+    if (notIdentified) {
+      visibility = { status: 'not_recognised', reason: 'Not compared: the audited brand was not recognised in this category.' };
+    } else if (brandVisibility.status !== 'scored' || v.score === null || v.counted < MIN_COUNTED_QUESTIONS) {
       visibility = { status: 'insufficient', reason: 'Too few counted questions to score.' };
     } else {
       visibility = {
@@ -70,7 +77,9 @@ function competitorSection(meta: JobMeta, data: JobData, core: Core): Competitor
     let sentiment: MetricOrSkipped;
     let sample = 0;
     const competitorData = data.competitors;
-    if (meta.tier !== 'full') {
+    if (notIdentified) {
+      sentiment = notMeasured('Not searched: the audited brand was not recognised in this category.');
+    } else if (meta.tier !== 'full') {
       sentiment = notMeasured('Skipped in this audit to stay inside the monthly research budget.');
     } else if (!competitorData || !competitorData.searchedNames.includes(name)) {
       sentiment = { status: 'insufficient', reason: 'The search for this competitor did not run or returned nothing usable.' };
@@ -94,11 +103,22 @@ function competitorSection(meta: JobMeta, data: JobData, core: Core): Competitor
     });
   }
 
+  if (notIdentified) {
+    return {
+      kind: 'recommended_brands',
+      rows,
+      note:
+        names.length === 0
+          ? 'Gemini did not recommend other brands often enough to list them here.'
+          : `These are the brands Gemini recommended most across the shopper questions. They are not verified competitors of ${meta.brand}: Gemini did not recognise ${meta.brand} in this category, so no comparison is drawn, no sentiment was searched for them, and none of them is used in the recommendations. The counts show how often each was named, for reference only.`,
+    };
+  }
+
   const note =
     names.length === 0
       ? 'Gemini did not recommend other brands often enough to name competitors.'
       : 'Competitors are the brands Gemini recommended most across the same questions. Their sentiment comes from one search each, a lighter sample than the audited brand received. Content coverage is not measured for competitors in V1, and nothing is estimated in its place.';
-  return { rows, note };
+  return { kind: 'competitors', rows, note };
 }
 
 function disconnectSection(data: JobData, core: Core): DisconnectSection {
@@ -106,6 +126,14 @@ function disconnectSection(data: JobData, core: Core): DisconnectSection {
   const note = data.synthesis?.insightsAvailable === false ? 'The comparison of specific points could not be generated for this audit.' : undefined;
   const v = core.visibility.metric;
   const p = core.perception.metric;
+  if (v.status === 'not_recognised') {
+    return {
+      status: 'cannot_assess',
+      reason: 'The two scores cannot be compared because the brand was not recognised in this category, so Gemini API recommendation visibility is not shown.',
+      disagreements,
+      note,
+    };
+  }
   if (v.status !== 'scored' || p.status !== 'scored') {
     const missing = [v.status !== 'scored' ? 'Gemini API recommendation visibility' : null, p.status !== 'scored' ? 'audience perception' : null]
       .filter(Boolean)
@@ -578,7 +606,9 @@ export function buildReport(job: JobMeta, data: JobData): Report {
 
   const fixes = [...(synthesis?.fixes ?? [])].sort((a, b) => a.priority - b.priority).slice(0, 5);
   let fixesNote: string | undefined;
-  if (!synthesis || !synthesis.fixesAvailable) fixesNote = 'Recommendations could not be generated for this audit.';
+  if (brandNotRecognised(data.identity) && (!synthesis || !synthesis.fixesAvailable)) {
+    fixesNote = 'No recommendations were made: the brand was not recognised in this category and there was not enough verified evidence about it to rest any on.';
+  } else if (!synthesis || !synthesis.fixesAvailable) fixesNote = 'Recommendations could not be generated for this audit.';
   else if (fixes.length < 5) {
     fixesNote = `Only ${fixes.length} recommendation${fixes.length === 1 ? '' : 's'} passed this audit's rules, so only ${fixes.length === 1 ? 'that one is' : 'those are'} shown. A recommendation must cite evidence found in this audit and must not assert a cause or a business result.`;
   }
@@ -611,12 +641,24 @@ export function buildReport(job: JobMeta, data: JobData): Report {
   }
   for (const source of data.claims?.sources ?? []) evidence.push({ ...source, text: clip(source.text, 320) });
 
+  if (fixes.length > 0 && brandNotRecognised(data.identity)) {
+    fixesNote = `${fixesNote ? `${fixesNote} ` : ''}Because Gemini did not recognise the brand in this category, these recommendations rest only on audience and website evidence checked as being about the brand. None draws on the brands Gemini recommended.`;
+  }
+
+  // What was found but not used, so the reader can see it and judge: results that used a similar name, and
+  // items that were read and judged to be about a different business.
+  const setAside: SetAsideEvidence[] = [];
+  for (const entry of [...(data.audience?.setAside ?? []), ...(data.youtube?.setAside ?? [])]) addSetAside(setAside, entry);
+  for (const item of differentBusinessItems(data)) {
+    addSetAside(setAside, { title: clip(item.title, 120), url: item.sourceUrl || item.url, domain: item.domain, reason: 'Read and judged to be about a different business that has a similar name.' });
+  }
+
   const youtube = data.youtube;
   const visibilityDetail = core.visibility.detail;
   const model = reportedModel(meta, data);
 
   return {
-    version: 6,
+    version: 7,
     id: meta.id,
     brand: meta.brand,
     brandKey: meta.brandKey,
@@ -630,6 +672,7 @@ export function buildReport(job: JobMeta, data: JobData): Report {
       { name: 'content gap severity', metric: core.contentGap.metric },
     ]),
     visibility: core.visibility,
+    ...(data.identity ? { identity: identitySection(data.identity, meta.brand, meta.categoryLabel, setAside) } : {}),
     brandProfile: data.profile ?? null,
     signatureAnswer: data.signature ?? null,
     answers: data.answers ?? [],

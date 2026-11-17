@@ -1,5 +1,5 @@
 import 'server-only';
-import { domainMatchesBrand, normalizeName, sameBrand } from '../../evidence/brand-match';
+import { domainBelongsToBrand, normalizeName, sameBrand } from '../../evidence/brand-match';
 import { clip, SOCIAL_DOMAINS } from '../../evidence/normalize';
 import { priceQuoteDecides } from '../../evidence/price';
 import { quoteIsAboutBrand } from '../../evidence/quotes';
@@ -90,7 +90,7 @@ export async function runClaimCheck(ctx: StageContext): Promise<'done' | 'contin
 
   // ownSite: a page on the brand's own domain is about the brand by definition.
   const pool: (PromptEvidence & { url: string; ownSite: boolean })[] = [
-    ...state.sources.map((s) => ({ id: s.id, source: sourceLabel(s), title: clip(s.title, 120), text: clip(s.text, 900), url: s.url, ownSite: domainMatchesBrand(s.domain, meta.brand) })),
+    ...state.sources.map((s) => ({ id: s.id, source: sourceLabel(s), title: clip(s.title, 120), text: clip(s.text, 900), url: s.url, ownSite: domainBelongsToBrand(s.domain, meta.brand) })),
     ...readablePages(data.site?.pages ?? [])
       .slice(0, 10)
       .map((p) => ({ id: p.id, source: "The brand's own site", title: clip(p.title, 120), text: clip(p.text, 900), url: p.url, ownSite: true })),

@@ -13,13 +13,48 @@ function Cell({ metric }: { metric: MetricOrSkipped }) {
   }
   return (
     <>
-      <span className="font-semibold">{metric.status === 'insufficient' ? 'Insufficient data' : 'Not measured'}</span>
+      <span className="font-semibold">{metric.status === 'insufficient' ? 'Insufficient data' : metric.status === 'not_recognised' ? 'Not compared' : 'Not measured'}</span>
       <span className="block text-ink-soft">{metric.reason}</span>
     </>
   );
 }
 
+/**
+ * When the audited brand was not recognised in its category, the brands Gemini recommended are shown as exactly that:
+ * a list with how often each was named. No chart, no sentiment, and no comparison with a brand that has no score.
+ */
+function RecommendedBrands({ report }: { report: Report }) {
+  const others = report.competitors.rows.filter((row) => !row.isAuditedBrand);
+  return (
+    <Section id="competitors" title="Brands Gemini recommended" intro={report.competitors.note}>
+      {others.length === 0 ? (
+        <p className="text-ink-soft">Gemini did not name other brands often enough to list them.</p>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="ui w-full min-w-[420px] border-collapse text-left text-[0.93rem]">
+            <thead>
+              <tr className="border-b-2 border-ink">
+                <th className="py-2 pr-4 font-semibold">Brand</th>
+                <th className="py-2 font-semibold">How often Gemini named it</th>
+              </tr>
+            </thead>
+            <tbody>
+              {others.map((row) => (
+                <tr key={row.name} className="border-b border-rule align-top">
+                  <td className="py-2.5 pr-4">{row.name}</td>
+                  <td className="py-2.5">Named in {row.appearances} counted answers</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </Section>
+  );
+}
+
 export function CompetitorComparison({ report }: { report: Report }) {
+  if (report.competitors.kind === 'recommended_brands') return <RecommendedBrands report={report} />;
   const rows = report.competitors.rows;
   const chartRows = rows.map((row) => ({
     name: row.name,

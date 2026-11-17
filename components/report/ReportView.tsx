@@ -43,6 +43,23 @@ export function ReportView({ report }: { report: Report }) {
         </p>
       ) : null}
 
+      {!report.illustrative && report.version < 7 ? (
+        <p className="ui mb-8 border-2 border-ink px-4 py-3 text-[0.95rem]">
+          This report was saved before audits checked whether the brand is recognised in the category chosen. If the
+          brand and category do not match, parts of it may describe other businesses with a similar name. It is shown
+          as it was produced. Run a new audit to have the check applied.
+        </p>
+      ) : null}
+
+      {report.identity && report.identity.status !== 'recognised' ? (
+        <div className="ui mb-8 border-2 border-ink bg-mark px-4 py-3 text-[0.98rem]">
+          <p className="font-semibold">
+            {report.identity.status === 'domain_verified' ? 'Brand not recognised in this category.' : 'Brand identity was not checked.'}
+          </p>
+          <p className="mt-1">{report.identity.summary}</p>
+        </div>
+      ) : null}
+
       <header>
         <p className="ui text-[0.95rem] text-ink-soft">
           Brand audit, {report.category.label}. {formatDateTime(report.createdAt)}

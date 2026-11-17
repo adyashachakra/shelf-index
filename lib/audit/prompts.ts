@@ -152,8 +152,15 @@ const LABEL_ITEM = obj({
   voice: oneOf(['customer', 'creator', 'publication', 'brand', 'unclear']),
   sentiment: oneOf(['positive', 'mixed', 'negative', 'neutral']),
 });
+const AUDITED_LABEL_ITEM = obj({
+  id: str(),
+  relevant: bool(),
+  voice: oneOf(['customer', 'creator', 'publication', 'brand', 'unclear']),
+  sentiment: oneOf(['positive', 'mixed', 'negative', 'neutral']),
+  same_business: oneOf(['yes', 'no', 'unclear']),
+});
 const LABELS_SCHEMA = obj({
-  labels: list(LABEL_ITEM),
+  labels: list(AUDITED_LABEL_ITEM),
   praise_themes: list(THEME_SCHEMA),
   complaint_themes: list(THEME_SCHEMA),
   concerns: list(obj({ label: str('A question a customer wants answered, at most 14 words'), evidence_ids: list(str()) })),
@@ -173,14 +180,18 @@ export interface PromptEvidence {
   text: string;
 }
 
-export function labelEvidencePrompt(brand: string, categoryLabel: string, items: PromptEvidence[]): GenerateOptions<LabelsOutput> {
+/**
+ * "context" is what the audit already knows about the brand (Gemini's own description, or its website address),
+ * so that the reader can tell the brand from other businesses with a similar name.
+ */
+export function labelEvidencePrompt(brand: string, categoryLabel: string, items: PromptEvidence[], context = ''): GenerateOptions<LabelsOutput> {
   return {
     label: 'label_evidence',
     system: [
       'You are a careful research analyst reading what people say about a brand.',
       UNTRUSTED,
       'Tasks:',
-      '1. "labels": one entry for EVERY evidence id. "relevant" is true only if the text expresses an opinion, experience or fact about this brand or its products. "voice": customer (an ordinary buyer or user speaking from experience), creator (an influencer, YouTuber or reviewer personality), publication (an editorial article or review site), brand (written by the brand or its staff), unclear. "sentiment" is the attitude toward this brand: positive, mixed, negative or neutral.',
+      '1. "labels": one entry for EVERY evidence id. "same_business" is "yes" only if the item is about the business named exactly by "Brand" (use "Brand context" if given), "no" if it is about a different business or product whose name only contains, begins with or resembles the brand\'s name (for example a different brand with a longer name, or a hyphenated or run-together name) or about an unrelated field, and "unclear" if you cannot tell. "relevant" is true only if the text expresses an opinion, experience or fact about this brand or its products. "voice": customer (an ordinary buyer or user speaking from experience), creator (an influencer, YouTuber or reviewer personality), publication (an editorial article or review site), brand (written by the brand or its staff), unclear. "sentiment" is the attitude toward this brand: positive, mixed, negative or neutral.',
       '2. "praise_themes": up to 3 things people praise. Include a theme only if at least 2 different evidence items show it. Give the ids of ALL items that show it, plus one short quote copied exactly from one of them. "scope" is "one_product" when the items are about a single named product (put its name, as the evidence writes it, in "product"), "brand_overall" when they are about the brand in general, otherwise "unclear".',
       '3. "complaint_themes": the same for complaints. The label names the topic in a few words (for example "Slow delivery" or "Irritation reports"), never a cause or a verdict. Write each summary as what these customers report about their own experience. Do not turn a few reports into a claim about the whole brand, and do not state a cause as fact: if customers blame an ingredient or a reformulation, say they attribute it to that.',
       '4. "concerns": up to 4 questions or worries customers raise that the brand\'s own website could answer, each shown by at least 2 evidence items.',
@@ -189,7 +200,7 @@ export function labelEvidencePrompt(brand: string, categoryLabel: string, items:
       '7. "price_position": how these items describe the brand\'s price level. "budget" ONLY if an item calls this brand or its products drugstore, affordable, budget, inexpensive or cheap. "premium" ONLY if an item calls them luxury, high-end, prestige, premium or expensive. Give that item\'s id and quote its exact words, including the price word. If no item says it in words, answer "unclear" with empty strings. Do not use your own knowledge of the brand.',
       'If the evidence does not support a theme, concern or note, leave it out. Never invent one.',
     ].join('\n'),
-    user: [`Brand: ${JSON.stringify(brand)}`, `Category: ${JSON.stringify(categoryLabel)}`, block('EVIDENCE', items)].join('\n\n'),
+    user: [`Brand: ${JSON.stringify(brand)}`, `Category: ${JSON.stringify(categoryLabel)}`, ...(context !== '' ? [`Brand context: ${JSON.stringify(context)}`] : []), block('EVIDENCE', items)].join('\n\n'),
     schema: LABELS_SCHEMA,
     parse: (value) => LabelsSchema.parse(value),
   };
