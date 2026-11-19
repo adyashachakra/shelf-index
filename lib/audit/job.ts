@@ -102,6 +102,12 @@ export interface JobMeta {
   geminiRequests: number;
   /** Format 8 and later audits only; audits started before this field existed have none. */
   geminiLedger?: GeminiLedger;
+  /**
+   * Set once, when this audit wanted to send a Gemini request and was refused because it had already sent the
+   * most it may (GEMINI_AUDIT_REQUEST_CEILING). From then on every Gemini call returns "no result" at once.
+   * The report says so, and a report from such an audit is not saved as the cached result for its brand.
+   */
+  geminiCeilingReached?: boolean;
   creditsSpent: number;
   searches: SearchLogEntry[];
   error?: string;

@@ -1,6 +1,7 @@
 import 'server-only';
+import { USER_MESSAGES } from '../../config';
 import type { GeminiAnswer } from '../../types';
-import { StopSignal, type StageContext } from '../context';
+import { MAX_STEP_ATTEMPTS, StopSignal, type StageContext } from '../context';
 import { askQuestionPrompt } from '../prompts';
 
 /**
@@ -21,7 +22,14 @@ export async function runAskGemini(ctx: StageContext): Promise<'done' | 'continu
     const base = { id: `G${index + 1}`, questionId: question.id, question: question.text, intent: question.intent };
     const result = await ctx.gemini(askQuestionPrompt(question.text), `ask:${question.id}`);
     if (result === null) {
-      answers.push({ ...base, status: 'failed', failureReason: 'Gemini did not return a usable answer after 3 attempts' });
+      // "After 3 attempts" is only true when the question used its attempts. A question the audit stopped asking
+      // because it reached its Gemini request limit says that instead.
+      const stoppedAtLimit = ctx.meta.geminiCeilingReached === true && (ctx.meta.attempts[`ask:${question.id}`] ?? 0) < MAX_STEP_ATTEMPTS;
+      answers.push({
+        ...base,
+        status: 'failed',
+        failureReason: stoppedAtLimit ? USER_MESSAGES.geminiCeilingQuestion : 'Gemini did not return a usable answer after 3 attempts',
+      });
     } else {
       answers.push({
         ...base,
@@ -41,7 +49,10 @@ export async function runAskGemini(ctx: StageContext): Promise<'done' | 'continu
   }
 
   if (answers.length > 0 && answers.every((a) => a.status === 'failed')) {
-    throw new StopSignal('no_answers', 'Gemini did not return a usable answer to any question, so this audit could not continue.');
+    throw new StopSignal(
+      'no_answers',
+      ctx.meta.geminiCeilingReached ? USER_MESSAGES.geminiCeilingNoAnswers : 'Gemini did not return a usable answer to any question, so this audit could not continue.',
+    );
   }
   return 'done';
 }

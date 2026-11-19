@@ -31,6 +31,14 @@ export const TIER_ORDER: Tier[] = ['full', 'reduced', 'minimal'];
 export const QUESTIONS_PER_AUDIT = 8;
 /** Used only to check there is room in the Gemini daily allowance before starting. */
 export const GEMINI_REQUESTS_PER_AUDIT = 18;
+/**
+ * The most Gemini requests ONE audit may send. A fixed constant, deliberately not an environment variable.
+ * 60 = 51 (the largest total the 3-attempts-per-step rule allows for a typed-in category: 17 calls x 3)
+ *    + 5 (one full format-downgrade ladder after an HTTP 400) + 4 (rate-limit retries; a judgement, not a measurement).
+ * A normal audit sends 16 requests, so this only ever bites on an audit that is failing badly.
+ * The 61st request is never sent: the audit stops asking Gemini, keeps what it has, and says why in its report.
+ */
+export const GEMINI_AUDIT_REQUEST_CEILING = 60;
 /** How long one "advance" request may work before handing back to the browser. */
 export const STAGE_BUDGET_MS = 42_000;
 export const GEMINI_TIMEOUT_MS = 38_000;
@@ -104,4 +112,10 @@ export const USER_MESSAGES = {
   storageQuota:
     "The audit store's free usage limit has been reached for now, so nothing could be started or continued. No Gemini request was made. Please try again later.",
   tooManyRequests: 'Too many attempts in a short time. Please wait a minute and try again.',
+  /** Shown in "What was missing from this audit" when an audit stopped at its Gemini request limit. */
+  geminiCeiling: `This audit reached its limit of ${GEMINI_AUDIT_REQUEST_CEILING} Gemini requests, so it stopped asking Gemini. Steps that had not finished are listed as unavailable and are not scored as zero. This report was not saved as the cached result for this brand, so a later audit of it will run again instead of reusing it.`,
+  /** The reason on a question that was not answered because the audit reached its Gemini request limit. */
+  geminiCeilingQuestion: 'Not answered: this audit reached its Gemini request limit',
+  /** The stop message when the limit was reached before any question had a usable answer. */
+  geminiCeilingNoAnswers: 'This audit reached its Gemini request limit before any question had a usable answer, so it could not continue.',
 };

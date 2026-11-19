@@ -7,7 +7,8 @@
 // the app's logic only: not how Google counts requests, not Upstash's real error replies, and not that the script
 // runs on Upstash itself.
 //
-// The per-audit ceiling is switched OFF in this stage (0): nothing here expects an audit to stop at 60 requests.
+// Accounting tests. The per-audit ceiling (60) is tested in tests/gemini-ceiling.test.ts. Here it only appears where a
+// test hands the gate a limit directly (0 = none, or 60 in I3c); the audits in this file never come near 60 requests.
 import assert from 'node:assert/strict';
 import test, { after, afterEach, before, beforeEach } from 'node:test';
 import { POST as advanceRoute } from '../app/api/audits/[id]/advance/route';
@@ -384,7 +385,7 @@ test('I3. every kind of refusal writes nothing, and the next granted request add
   assert.deepEqual({ minute: await minuteSum(), day: await day(), audit: await audit() }, { minute: before.minute + 1, day: before.day + 1, audit: before.audit + 1 });
 });
 
-test('I3b. the ceiling is OFF in this stage: 70 requests of one audit are all granted when the limit passed is 0', async () => {
+test('I3b. a limit of 0 means no per-audit limit: 70 requests of one audit are all granted', async () => {
   for (let i = 1; i <= 70; i += 1) {
     const result = await acquireGeminiSlot('no-ceiling', 0);
     assert.equal(result.ok, true, `request ${i}`);
@@ -392,7 +393,7 @@ test('I3b. the ceiling is OFF in this stage: 70 requests of one audit are all gr
   assert.equal(await geminiRequestsForAudit('no-ceiling'), 70);
 });
 
-test('I3c. the script enforces a ceiling when one is passed (for Stage 2): the 61st is refused and writes nothing', async () => {
+test('I3c. the script enforces a ceiling when one is passed: the 61st is refused and writes nothing', async () => {
   for (let i = 1; i <= 60; i += 1) assert.equal((await acquireGeminiSlot('ceiling-60', 60)).ok, true);
   const before = await geminiKeys();
   const refused = await acquireGeminiSlot('ceiling-60', 60);

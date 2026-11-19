@@ -2,7 +2,7 @@ import 'server-only';
 import { differentBusinessItems, mixedByReaderReason, readablePages } from '../audit/evidence-builders';
 import type { JobData, JobMeta } from '../audit/job';
 import { QUESTION_BANK_VERSION } from '../audit/questions';
-import { config, GEMINI_REQUESTS_PER_AUDIT } from '../config';
+import { config, GEMINI_REQUESTS_PER_AUDIT, USER_MESSAGES } from '../config';
 import { mostCommonCasing } from '../evidence/brand-match';
 import { addSetAside, brandNotRecognised, identitySection } from '../evidence/identity';
 import { clip } from '../evidence/normalize';
@@ -604,6 +604,8 @@ export function buildReport(job: JobMeta, data: JobData): Report {
   const checklistItems = core.contentGap.detail.checklist;
   const unanswered = checklistItems.filter((item) => item.unanswered).length;
   const warnings = [...meta.warnings];
+  // An audit that stopped at its Gemini request limit says so first: it is the reason other steps are unavailable.
+  if (meta.geminiCeilingReached) warnings.unshift(USER_MESSAGES.geminiCeiling);
   if (unanswered > 0) {
     warnings.push(
       `The analysis of the brand's site returned no verdict for ${unanswered} of the ${checklistItems.length} checklist items. They are left out of the content gap score, and its confidence is lowered, because a missing answer does not show that the site fails to address them.`,

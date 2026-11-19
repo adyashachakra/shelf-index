@@ -2,7 +2,7 @@ import 'server-only';
 import { cmd, getString } from '../clients/redis';
 import { GeminiError, generateJson, type GenerateRequest, type GenerateResult, type RequestGate } from '../clients/gemini';
 import { TavilyError, tavilySearch, type TavilyResult, type TavilySearchParams } from '../clients/tavily';
-import { config, USER_MESSAGES } from '../config';
+import { config, GEMINI_AUDIT_REQUEST_CEILING, USER_MESSAGES } from '../config';
 import { saveSection } from '../cache/jobs';
 import { logEvent } from '../log';
 import { monthKey } from '../quota/dates';
@@ -61,17 +61,30 @@ export class StorageSignal extends Error {
 export const MAX_STEP_ATTEMPTS = 3;
 
 /**
- * Stage 1 passes no per-audit request limit to the gate (0 = none). The 60-request ceiling arrives in
- * Stage 2; until then the existing retry rules (3 attempts per step) are the only bound, as before.
+ * Raised by the gate when this audit has already sent its limit of Gemini requests. It never leaves
+ * `ctx.gemini`, which turns it into "no result" (the same null an exhausted step returns), so every stage
+ * degrades through its own existing "unavailable" path.
  */
-const AUDIT_REQUEST_CEILING_OFF = 0;
+class CeilingSignal extends Error {
+  constructor() {
+    super('This audit reached its limit on Gemini requests.');
+    this.name = 'CeilingSignal';
+  }
+}
+
+/** Record, once, that this audit was refused further Gemini requests. Nothing is sent after this. */
+function reachCeiling(meta: JobMeta, stepKey: string, requests: number): void {
+  if (meta.geminiCeilingReached) return;
+  meta.geminiCeilingReached = true;
+  logEvent('gemini_ceiling_reached', { step: stepKey, requests, ceiling: GEMINI_AUDIT_REQUEST_CEILING });
+}
 
 /** Ask the atomic gate before EVERY outbound Gemini request of this audit, and record how each ended. */
 function makeGate(meta: JobMeta, stepKey: string): RequestGate {
   const ledger = () => (meta.geminiLedger ??= { started: 0, steps: {}, outcomes: {} });
   return {
     async beforeRequest() {
-      const slot = await acquireGeminiSlot(meta.id, AUDIT_REQUEST_CEILING_OFF);
+      const slot = await acquireGeminiSlot(meta.id, GEMINI_AUDIT_REQUEST_CEILING);
       if (slot.ok) {
         // The Redis audit counter is the durable count; the in-memory value mirrors it.
         meta.geminiRequests = slot.auditCount;
@@ -89,8 +102,9 @@ function makeGate(meta: JobMeta, stepKey: string): RequestGate {
           logEvent('gemini_slot_storage_error', { reason: slot.reason, step: stepKey });
           throw new StorageSignal(slot.reason);
         case 'ceiling':
-          // Not reachable in Stage 1 (the ceiling is switched off). Fail safe if it ever is.
-          throw new StopSignal('error', 'This audit reached its limit on Gemini requests.');
+          // Refused by the atomic gate: nothing was sent and nothing was counted. The Redis counter is the truth.
+          meta.geminiRequests = Math.max(meta.geminiRequests, slot.auditCount);
+          throw new CeilingSignal();
       }
     },
     afterRequest(outcome) {
@@ -125,8 +139,9 @@ export interface StageContext {
   note(stage: StageId, text: string): void;
   warn(text: string): void;
   /**
-   * One Gemini request with pacing and error handling. Returns null when the step failed
-   * MAX_STEP_ATTEMPTS times (the caller then degrades gracefully). Throws WaitSignal,
+   * One Gemini call with pacing and error handling. Returns null when the step failed
+   * MAX_STEP_ATTEMPTS times, or when this audit has reached its Gemini request limit (the caller then
+   * degrades gracefully; `meta.geminiCeilingReached` tells the two apart). Throws WaitSignal,
    * PauseSignal or StopSignal for rate limits, daily quota and setup problems, and StorageSignal when the
    * audit store cannot approve a request (nothing is sent).
    */
@@ -160,11 +175,23 @@ export function createContext(meta: JobMeta, data: JobData, deadline: number): S
     async gemini(options, stepKey) {
       const attempts = meta.attempts[stepKey] ?? 0;
       if (attempts >= MAX_STEP_ATTEMPTS) return null;
+      // Once this audit has sent its limit, no further Gemini request is made: not even a Redis call to ask.
+      // (meta.geminiRequests only ever mirrors the Redis audit counter, so it is never ahead of it; if it is
+      // behind, the gate below is the authority.)
+      if (meta.geminiCeilingReached) return null;
+      if (meta.geminiRequests >= GEMINI_AUDIT_REQUEST_CEILING) {
+        reachCeiling(meta, stepKey, meta.geminiRequests);
+        return null;
+      }
 
       try {
         // The gate runs inside generateJson, before every outbound request (retries included).
         return await generateJson({ ...options, gate: makeGate(meta, stepKey) });
       } catch (err) {
+        if (err instanceof CeilingSignal) {
+          reachCeiling(meta, stepKey, meta.geminiRequests);
+          return null;
+        }
         if (!(err instanceof GeminiError)) throw err;
         switch (err.kind) {
           case 'rate_limit': {

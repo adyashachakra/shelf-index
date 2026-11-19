@@ -180,8 +180,9 @@ async function failJob(meta: JobMeta, message: string): Promise<void> {
   meta.status = 'failed';
   meta.error = message;
   try {
-    // If nothing was spent, the daily and visitor slots go back too.
-    await settleReservation(meta.id, meta.keys, true);
+    // If nothing was spent, the daily and visitor slots go back too. An audit that stopped at its Gemini request
+    // limit did spend: it sent up to the limit in Gemini requests, so its slots are not returned (decision Q-B).
+    await settleReservation(meta.id, meta.keys, meta.geminiCeilingReached !== true);
     await releaseInflight(meta.cacheKey, meta.id);
   } catch (err) {
     logEvent('fail_cleanup_error', { error: safeErrorMessage(err) });
