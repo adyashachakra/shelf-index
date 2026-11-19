@@ -1,4 +1,6 @@
 import { advanceJob } from '@/lib/audit/pipeline';
+import { StorageSignal } from '@/lib/audit/context';
+import { USER_MESSAGES } from '@/lib/config';
 import { logEvent, safeErrorMessage } from '@/lib/log';
 import { isValidAuditId } from '@/lib/validation/input';
 
@@ -20,6 +22,12 @@ export async function POST(_request: Request, context: { params: Promise<{ id: s
     }
     return Response.json(snapshot, { headers: NO_STORE });
   } catch (err) {
+    if (err instanceof StorageSignal) {
+      // No Gemini request was sent and no request slot was used. Not a Gemini limit.
+      logEvent('advance_storage_error', { reason: err.reason });
+      const error = err.reason === 'quota' ? USER_MESSAGES.storageQuota : USER_MESSAGES.storage;
+      return Response.json({ error, kind: 'storage', reason: err.reason }, { status: 503, headers: NO_STORE });
+    }
     logEvent('advance_error', { error: safeErrorMessage(err) });
     return Response.json({ error: 'The audit store is not reachable right now.' }, { status: 503, headers: NO_STORE });
   }

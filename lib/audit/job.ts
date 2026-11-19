@@ -1,4 +1,5 @@
 import 'server-only';
+import type { RequestOutcome } from '../clients/gemini';
 import type { ReservationKeys } from '../quota/reservations';
 import type {
   AdvocacyNote,
@@ -62,6 +63,20 @@ export const STAGE_ORDER: { id: StageId; label: (brand: string) => string }[] = 
   { id: 'finalize', label: () => 'Calculating scores and assembling the report' },
 ];
 
+/**
+ * What this audit's Gemini requests did. Best effort: it is saved at the end of each stage, so after an
+ * interruption the outcomes of the interrupted request are missing. The Redis audit counter is the
+ * durable count; `started` mirrors it.
+ */
+export interface GeminiLedger {
+  /** Requests the gate allowed so far (the Redis audit counter as last seen). */
+  started: number;
+  /** Requests allowed per step key (for example "ask:q3" or "profile"). */
+  steps: Record<string, number>;
+  /** How each request ended. `started` minus the sum of these is shown as "interrupted". */
+  outcomes: Partial<Record<RequestOutcome, number>>;
+}
+
 export interface JobMeta {
   id: string;
   /** The brand name as shown. Capitalised for display when the visitor typed it in lower case. */
@@ -85,6 +100,8 @@ export interface JobMeta {
   model: string;
   keys: ReservationKeys;
   geminiRequests: number;
+  /** Format 8 and later audits only; audits started before this field existed have none. */
+  geminiLedger?: GeminiLedger;
   creditsSpent: number;
   searches: SearchLogEntry[];
   error?: string;

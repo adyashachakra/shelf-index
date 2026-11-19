@@ -518,7 +518,13 @@ export interface Methodology {
   questions: { planned: number; answered: number; failed: number; excluded: number; counted: number };
   searches: SearchLogEntry[];
   tavilyCreditsUsed: number;
+  /**
+   * Format 8 and later: Gemini requests this app actually sent (or tried to send), counted before each request.
+   * Earlier formats counted one per logical call and could miss format-negotiation retries.
+   */
   geminiRequests: number;
+  /** Format 8 and later: how those requests ended. Missing for older reports and for audits started before it existed. */
+  geminiRequestOutcomes?: Partial<Record<'ok' | 'unusable' | 'blocked' | 'http_400' | 'http_429' | 'http_5xx' | 'http_other' | 'timeout' | 'network' | 'interrupted', number>>;
   youtube: { status: 'ok' | 'partial' | 'unavailable' | 'skipped'; videos: number; comments: number; note?: string };
   sitePages: number;
   unavailable: string[];
@@ -570,8 +576,8 @@ export interface IdentitySection {
 // ---------- The report ----------
 
 export interface Report {
-  /** 7 for new reports. Older reports are still read: every field added since is optional. */
-  version: 2 | 3 | 4 | 5 | 6 | 7;
+  /** 8 for new reports. Older reports are still read: every field added since is optional. */
+  version: 2 | 3 | 4 | 5 | 6 | 7 | 8;
   id: string;
   /** True only for the bundled example with a fictional brand. */
   illustrative?: boolean;

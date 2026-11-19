@@ -44,17 +44,21 @@ export const INFLIGHT_TTL_SECONDS = 26 * 60 * 60;
  *
  * 7: audits now settle which brand they are about before researching it. Without this bump the cached
  * format 6 report for COS / Skincare (a report about look-alike brands) would be handed to a repeat audit.
+ *
+ * 8: the report's Gemini request count is now the number of requests the app actually sent or tried to send,
+ * counted in one atomic Redis step before each request (it used to count one per logical call and missed
+ * format-negotiation retries). A cached format 7 report is therefore not handed to a repeat audit.
  */
-export const REPORT_FORMAT_VERSION = 7;
+export const REPORT_FORMAT_VERSION = 8;
 /**
- * Saved-report versions that can still be OPENED, newest first. Versions 3 to 7 only differ by
+ * Saved-report versions that can still be OPENED, newest first. Versions 3 to 8 only differ by
  * optional fields and by the rules that produced the verdicts, and the report pages treat every
  * newer field as optional, so older links keep working until they expire. Version 2 (the first
  * V1.1 preview) has the same overall shape and is opened as it was saved: nothing missing is filled
  * in. Version 1 (V1.0) has a different shape and cannot be rendered by these pages: V1.0 reports
  * stay on the original deployment.
  */
-export const READABLE_REPORT_VERSIONS: readonly number[] = [7, 6, 5, 4, 3, 2];
+export const READABLE_REPORT_VERSIONS: readonly number[] = [8, 7, 6, 5, 4, 3, 2];
 /** Share of the configured per-minute limit the app allows itself to use. */
 export const GEMINI_RPM_HEADROOM = 0.8;
 
@@ -97,5 +101,7 @@ export const USER_MESSAGES = {
     "Gemini's free daily quota is used up. New audits reopen after it resets (midnight Pacific time).",
   setup: 'This site is not fully set up yet. The owner needs to finish adding its configuration.',
   storage: 'The audit store is not reachable right now. Please try again in a minute.',
+  storageQuota:
+    "The audit store's free usage limit has been reached for now, so nothing could be started or continued. No Gemini request was made. Please try again later.",
   tooManyRequests: 'Too many attempts in a short time. Please wait a minute and try again.',
 };

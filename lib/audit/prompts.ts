@@ -1,5 +1,5 @@
 import 'server-only';
-import type { GenerateOptions, JsonSchema } from '../clients/gemini';
+import type { GenerateRequest, JsonSchema } from '../clients/gemini';
 import {
   AskAnswerSchema,
   ClaimVerdictsSchema,
@@ -61,7 +61,7 @@ const ASK_SCHEMA = obj({
   also_mentioned: list(obj({ brand: str(), stance: oneOf(['neutral', 'cautioned']) })),
 });
 
-export function askQuestionPrompt(question: string): GenerateOptions<AskAnswerOutput> {
+export function askQuestionPrompt(question: string): GenerateRequest<AskAnswerOutput> {
   return {
     label: 'ask_question',
     system: [
@@ -98,7 +98,7 @@ const PROFILE_SCHEMA = obj({
   ),
 });
 
-export function brandProfilePrompt(brand: string, categoryLabel: string): GenerateOptions<ProfileOutput> {
+export function brandProfilePrompt(brand: string, categoryLabel: string): GenerateRequest<ProfileOutput> {
   return {
     label: 'brand_profile',
     system: [
@@ -119,7 +119,7 @@ export function brandProfilePrompt(brand: string, categoryLabel: string): Genera
 
 const QUESTIONS_SCHEMA = obj({ questions: list(obj({ intent: str('Two or three words'), text: str() })) });
 
-export function generateQuestionsPrompt(categoryLabel: string): GenerateOptions<GeneratedQuestionsOutput> {
+export function generateQuestionsPrompt(categoryLabel: string): GenerateRequest<GeneratedQuestionsOutput> {
   return {
     label: 'generate_questions',
     system: [
@@ -191,7 +191,7 @@ export interface PromptEvidence {
  * "context" is what the audit already knows about the brand (Gemini's own description, or its website address),
  * so that the reader can tell the brand from other businesses with a similar name.
  */
-export function labelEvidencePrompt(brand: string, categoryLabel: string, items: PromptEvidence[], context = ''): GenerateOptions<LabelsOutput> {
+export function labelEvidencePrompt(brand: string, categoryLabel: string, items: PromptEvidence[], context = ''): GenerateRequest<LabelsOutput> {
   return {
     label: 'label_evidence',
     system: [
@@ -247,7 +247,7 @@ export interface SitePromptInput {
   geminiProducts: string[];
 }
 
-export function siteAnalysisPrompt(input: SitePromptInput): GenerateOptions<SiteAnalysisOutput> {
+export function siteAnalysisPrompt(input: SitePromptInput): GenerateRequest<SiteAnalysisOutput> {
   // Every checklist id is spelled out. In one live audit all the shopper questions came back as
   // "not addressed", and afterwards it could not be told whether the model had judged them so
   // or had left them out of its answer.
@@ -300,7 +300,7 @@ export function claimVerdictsPrompt(
   brand: string,
   claims: { id: string; text: string }[],
   evidence: PromptEvidence[],
-): GenerateOptions<ClaimVerdictsOutput> {
+): GenerateRequest<ClaimVerdictsOutput> {
   return {
     label: 'claim_verdicts',
     system: [
@@ -321,7 +321,7 @@ export function claimVerdictsPrompt(
 export function competitorLabelsPrompt(
   categoryLabel: string,
   items: (PromptEvidence & { about: string })[],
-): GenerateOptions<CompetitorLabelsOutput> {
+): GenerateRequest<CompetitorLabelsOutput> {
   return {
     label: 'competitor_labels',
     system: [
@@ -367,7 +367,7 @@ const SYNTHESIS_SCHEMA = obj({
   ),
 });
 
-export function synthesisPrompt(brand: string, categoryLabel: string, digest: Record<string, unknown>): GenerateOptions<SynthesisOutput> {
+export function synthesisPrompt(brand: string, categoryLabel: string, digest: Record<string, unknown>): GenerateRequest<SynthesisOutput> {
   return {
     label: 'synthesis',
     system: [
@@ -402,7 +402,7 @@ const FIXES_SCHEMA = obj({
   ),
 });
 
-export function fixesPrompt(brand: string, categoryLabel: string, digest: Record<string, unknown>): GenerateOptions<FixesOutput> {
+export function fixesPrompt(brand: string, categoryLabel: string, digest: Record<string, unknown>): GenerateRequest<FixesOutput> {
   return {
     label: 'fixes',
     system: [

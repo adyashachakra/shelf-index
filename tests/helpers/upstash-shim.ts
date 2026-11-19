@@ -78,8 +78,17 @@ function toBody(reply: Reply): { result?: Reply; error?: string } {
   return { result: reply };
 }
 
+/** What the shim does instead of running a command: answer with an error or a made-up result, or drop the connection. */
+export type Intercept = { error: string; status?: number } | { result: unknown } | 'drop';
+
 export interface Shim {
   url: string;
+  /** Called before each command is run. Return an Intercept to replace Redis's answer. The command is NOT run then. */
+  intercept: ((args: string[]) => Intercept | null) | null;
+  /** Every command the app sent (pipeline entries counted one by one), whether or not it was intercepted. */
+  sent: string[][];
+  /** Only the commands that really ran on Redis. */
+  executed: string[][];
   token: string;
   requests: number;
   close(): Promise<void>;
@@ -92,6 +101,14 @@ export async function startShim(redisPort: number, db = 0): Promise<Shim> {
   const redis = new RedisConnection(redisPort);
   await redis.send(['SELECT', String(db)]);
   const state = { requests: 0 };
+  const hooks: { intercept: Shim['intercept']; sent: string[][]; executed: string[][] } = { intercept: null, sent: [], executed: [] };
+  /** Run one command through the hook; null means "run normally". */
+  const intercepted = (args: string[]): Intercept | null => {
+    hooks.sent.push(args);
+    const action = hooks.intercept ? hooks.intercept(args) : null;
+    if (!action) hooks.executed.push(args);
+    return action;
+  };
   const server: Server = createServer((req, res) => {
     const chunks: Buffer[] = [];
     req.on('data', (c: Buffer) => chunks.push(c));
@@ -106,12 +123,37 @@ export async function startShim(redisPort: number, db = 0): Promise<Shim> {
       try {
         const body = JSON.parse(Buffer.concat(chunks).toString('utf8'));
         if (req.url === '/pipeline') {
-          const out = [];
-          for (const command of body as string[][]) out.push(toBody(await redis.send(command.map(String))));
+          const out: unknown[] = [];
+          for (const command of body as string[][]) {
+            const args = command.map(String);
+            const action = intercepted(args);
+            if (action === 'drop') {
+              req.socket.destroy();
+              return;
+            }
+            if (action && 'error' in action) out.push({ error: action.error });
+            else if (action) out.push({ result: action.result });
+            else out.push(toBody(await redis.send(args)));
+          }
           res.end(JSON.stringify(out));
           return;
         }
-        const reply = toBody(await redis.send((body as string[]).map(String)));
+        const args = (body as string[]).map(String);
+        const action = intercepted(args);
+        if (action === 'drop') {
+          req.socket.destroy();
+          return;
+        }
+        if (action && 'error' in action) {
+          res.statusCode = action.status ?? 400;
+          res.end(JSON.stringify({ error: action.error }));
+          return;
+        }
+        if (action) {
+          res.end(JSON.stringify({ result: action.result }));
+          return;
+        }
+        const reply = toBody(await redis.send(args));
         if (reply.error) res.statusCode = 400;
         res.end(JSON.stringify(reply));
       } catch (err) {
@@ -128,6 +170,18 @@ export async function startShim(redisPort: number, db = 0): Promise<Shim> {
     token,
     get requests() {
       return state.requests;
+    },
+    get intercept() {
+      return hooks.intercept;
+    },
+    set intercept(value: Shim['intercept']) {
+      hooks.intercept = value;
+    },
+    get sent() {
+      return hooks.sent;
+    },
+    get executed() {
+      return hooks.executed;
     },
     async flush() {
       await redis.send(['FLUSHDB']);

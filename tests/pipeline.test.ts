@@ -94,7 +94,7 @@ test('a full audit runs stage by stage to a finished report', async () => {
   assert.equal(report.model, 'gemini-3.5-flash-lite', 'the model name comes from what the API reported');
   assert.equal(report.methodology.modelConfigured, 'gemini-3.5-flash-lite');
   assert.ok(report.methodology.modelNote.includes('free tier'));
-  assert.equal(report.version, 7);
+  assert.equal(report.version, 8);
 });
 
 test('visibility: failed answers are missing data, range exclusions need evidence', () => {

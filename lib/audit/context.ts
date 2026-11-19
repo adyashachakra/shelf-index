@@ -1,6 +1,6 @@
 import 'server-only';
 import { cmd, getString } from '../clients/redis';
-import { GeminiError, generateJson, type GenerateOptions, type GenerateResult } from '../clients/gemini';
+import { GeminiError, generateJson, type GenerateRequest, type GenerateResult, type RequestGate } from '../clients/gemini';
 import { TavilyError, tavilySearch, type TavilyResult, type TavilySearchParams } from '../clients/tavily';
 import { config, USER_MESSAGES } from '../config';
 import { saveSection } from '../cache/jobs';
@@ -43,7 +43,62 @@ export class StopSignal extends Error {
   }
 }
 
+/**
+ * The audit store (Redis) could not be used to approve a Gemini request, so the request was NOT sent and
+ * no request slot was consumed. This is an infrastructure failure, not a Gemini limit: it sets no
+ * cooldown, no provider-daily marker, no step attempt and no warning, and the stage is neither failed nor
+ * counted as an error. "quota" means the store itself reported that its free request limit is used up.
+ */
+export class StorageSignal extends Error {
+  reason: 'quota' | 'unavailable';
+  constructor(reason: 'quota' | 'unavailable') {
+    super(reason === 'quota' ? USER_MESSAGES.storageQuota : USER_MESSAGES.storage);
+    this.name = 'StorageSignal';
+    this.reason = reason;
+  }
+}
+
 export const MAX_STEP_ATTEMPTS = 3;
+
+/**
+ * Stage 1 passes no per-audit request limit to the gate (0 = none). The 60-request ceiling arrives in
+ * Stage 2; until then the existing retry rules (3 attempts per step) are the only bound, as before.
+ */
+const AUDIT_REQUEST_CEILING_OFF = 0;
+
+/** Ask the atomic gate before EVERY outbound Gemini request of this audit, and record how each ended. */
+function makeGate(meta: JobMeta, stepKey: string): RequestGate {
+  const ledger = () => (meta.geminiLedger ??= { started: 0, steps: {}, outcomes: {} });
+  return {
+    async beforeRequest() {
+      const slot = await acquireGeminiSlot(meta.id, AUDIT_REQUEST_CEILING_OFF);
+      if (slot.ok) {
+        // The Redis audit counter is the durable count; the in-memory value mirrors it.
+        meta.geminiRequests = slot.auditCount;
+        const l = ledger();
+        l.started = slot.auditCount;
+        l.steps[stepKey] = (l.steps[stepKey] ?? 0) + 1;
+        return;
+      }
+      switch (slot.kind) {
+        case 'daily':
+          throw new PauseSignal(USER_MESSAGES.geminiDaily);
+        case 'wait':
+          throw new WaitSignal(slot.seconds, slot.reason);
+        case 'storage':
+          logEvent('gemini_slot_storage_error', { reason: slot.reason, step: stepKey });
+          throw new StorageSignal(slot.reason);
+        case 'ceiling':
+          // Not reachable in Stage 1 (the ceiling is switched off). Fail safe if it ever is.
+          throw new StopSignal('error', 'This audit reached its limit on Gemini requests.');
+      }
+    },
+    afterRequest(outcome) {
+      const l = ledger();
+      l.outcomes[outcome] = (l.outcomes[outcome] ?? 0) + 1;
+    },
+  };
+}
 
 function tavilyExhaustedKey(now: Date = new Date()): string {
   return `si:tavily:exhausted:${monthKey(config.quotaTimezone(), now)}`;
@@ -72,9 +127,10 @@ export interface StageContext {
   /**
    * One Gemini request with pacing and error handling. Returns null when the step failed
    * MAX_STEP_ATTEMPTS times (the caller then degrades gracefully). Throws WaitSignal,
-   * PauseSignal or StopSignal for rate limits, daily quota and setup problems.
+   * PauseSignal or StopSignal for rate limits, daily quota and setup problems, and StorageSignal when the
+   * audit store cannot approve a request (nothing is sent).
    */
-  gemini<T>(options: GenerateOptions<T>, stepKey: string): Promise<GenerateResult<T> | null>;
+  gemini<T>(options: GenerateRequest<T>, stepKey: string): Promise<GenerateResult<T> | null>;
   /**
    * One Tavily search, paid for from this audit's reservation. Returns null when the search is
    * unavailable or the audit's credit allowance is used (the caller continues without it).
@@ -105,15 +161,9 @@ export function createContext(meta: JobMeta, data: JobData, deadline: number): S
       const attempts = meta.attempts[stepKey] ?? 0;
       if (attempts >= MAX_STEP_ATTEMPTS) return null;
 
-      const slot = await acquireGeminiSlot();
-      if (!slot.ok) {
-        if (slot.kind === 'daily') throw new PauseSignal(USER_MESSAGES.geminiDaily);
-        throw new WaitSignal(slot.seconds, slot.reason);
-      }
-      meta.geminiRequests += 1;
-
       try {
-        return await generateJson(options);
+        // The gate runs inside generateJson, before every outbound request (retries included).
+        return await generateJson({ ...options, gate: makeGate(meta, stepKey) });
       } catch (err) {
         if (!(err instanceof GeminiError)) throw err;
         switch (err.kind) {

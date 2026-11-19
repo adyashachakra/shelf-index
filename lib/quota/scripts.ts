@@ -123,3 +123,39 @@ redis.call('HSET', KEYS[1], 'state', 'settled', 'refunded', unused)
 redis.call('ZREM', KEYS[5], ARGV[2])
 return {1, unused, slots}
 `;
+
+/**
+ * GEMINI_SLOT: decide whether one outbound Gemini request may be sent now, and count it, in one atomic step.
+ * Every limit is checked before anything is written, so a refused request writes nothing and there is
+ * nothing to undo. A grant increments the minute, day and per-audit counters.
+ * KEYS: 1 current-minute counter, 2 previous-minute counter, 3 day counter, 4 this audit's counter,
+ *       5 cooldown marker (ms timestamp), 6 provider-daily-exhausted marker
+ * ARGV: 1 nowMs, 2 dayLimit (0 = none), 3 allowedPerMinute (0 = none), 4 per-audit ceiling (0 = none),
+ *       5 minute-counter ttl, 6 day-counter ttl, 7 audit-counter ttl (all seconds)
+ * Returns {1,'ok',auditCount,dayCount} or {0,'ceiling'|'cooldown'|'daily'|'pace',value,0}
+ */
+export const GEMINI_SLOT_SCRIPT = `
+local now = tonumber(ARGV[1])
+local v = redis.call('MGET', KEYS[4], KEYS[5], KEYS[6], KEYS[3], KEYS[1], KEYS[2])
+local audit = tonumber(v[1]) or 0
+local cooldown = tonumber(v[2]) or 0
+local exhausted = v[3]
+local day = tonumber(v[4]) or 0
+local cur = tonumber(v[5]) or 0
+local prev = tonumber(v[6]) or 0
+local ceil = tonumber(ARGV[4])
+if ceil > 0 and audit >= ceil then return {0, 'ceiling', audit, 0} end
+if cooldown > now then return {0, 'cooldown', cooldown, 0} end
+if exhausted then return {0, 'daily', day, 0} end
+local dayLimit = tonumber(ARGV[2])
+if dayLimit > 0 and day >= dayLimit then return {0, 'daily', day, 0} end
+local allowed = tonumber(ARGV[3])
+if allowed > 0 then
+  local frac = (now % 60000) / 60000
+  if prev * (1 - frac) + cur + 1 > allowed then return {0, 'pace', cur + 1, 0} end
+end
+local m = redis.call('INCR', KEYS[1]); if m == 1 then redis.call('EXPIRE', KEYS[1], tonumber(ARGV[5])) end
+local d = redis.call('INCR', KEYS[3]); if d == 1 then redis.call('EXPIRE', KEYS[3], tonumber(ARGV[6])) end
+local a = redis.call('INCR', KEYS[4]); if a == 1 then redis.call('EXPIRE', KEYS[4], tonumber(ARGV[7])) end
+return {1, 'ok', a, d}
+`;

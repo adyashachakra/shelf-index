@@ -34,6 +34,9 @@ export interface Scenario {
   competitorMixed?: (about: string, text: string) => boolean;
 }
 
+/** A scripted failure for one generateContent request: an HTTP error reply, a dropped connection, or a timeout. */
+export type MockFault = { status: number; body?: unknown } | 'network' | 'timeout';
+
 export interface MockState {
   /** When set, the services answer as if the audited brand were this one. */
   scenario: Scenario | null;
@@ -53,6 +56,15 @@ export interface MockState {
   tavilyQuotaExhausted: boolean;
   youtubeQuotaExhausted: boolean;
   seenAuthHeaders: string[];
+  /** generateContent requests only (geminiCalls also counts the health check's metadata request). */
+  generateCalls: number;
+  /** The parsed body of every generateContent request, in order. */
+  generateBodies: Record<string, unknown>[];
+  /**
+   * Called for every generateContent request with its 1-based number. Return a fault to fail that request,
+   * or null to answer normally. The request is counted in generateCalls either way.
+   */
+  fault: ((requestNumber: number, body: Record<string, unknown>) => MockFault | null) | null;
 }
 
 export function newMockState(): MockState {
@@ -69,6 +81,9 @@ export function newMockState(): MockState {
     tavilyQuotaExhausted: false,
     youtubeQuotaExhausted: false,
     seenAuthHeaders: [],
+    generateCalls: 0,
+    generateBodies: [],
+    fault: null,
   };
 }
 
@@ -217,6 +232,10 @@ function scenarioPages(brand: string, domain: string): [string, string, string][
 
 function geminiResponse(system: string, user: string, state: MockState): unknown {
   const scenario = state.scenario;
+  if (system.includes('Write questions real shoppers ask')) {
+    const intents = ['best overall', 'value', 'premium', 'sensitive needs', 'trust', 'beginners', 'gifts', 'durability'];
+    return { questions: intents.map((intent, i) => ({ intent, text: `Which brands are best for ${intent} in this category? (${i + 1})` })) };
+  }
   if (system.includes('answering a shopper')) {
     if (scenario) {
       const names = scenario.recommends;
@@ -475,6 +494,12 @@ export function installMockFetch(state: MockState, passthroughPrefix: string): (
       if (!url.includes(':generateContent')) return json(200, { name: 'models/mock' });
       const body = JSON.parse(String(init?.body ?? '{}')) as Record<string, unknown>;
       const generationConfig = (body.generationConfig ?? {}) as Record<string, unknown>;
+      state.generateCalls += 1;
+      state.generateBodies.push(body);
+      const fault = state.fault ? state.fault(state.generateCalls, body) : null;
+      if (fault === 'network') throw new TypeError('fetch failed');
+      if (fault === 'timeout') throw Object.assign(new Error('The operation was aborted due to timeout'), { name: 'TimeoutError' });
+      if (fault) return json(fault.status, fault.body ?? { error: { code: fault.status, status: 'FAULT', message: 'Scripted test failure.' } });
       if (body.tools !== undefined) throw new Error('The engine must never send tools (no Search grounding)');
       if (state.rejectJsonSchemaOnce && generationConfig.responseJsonSchema !== undefined) {
         state.rejectJsonSchemaOnce = false;

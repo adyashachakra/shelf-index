@@ -210,6 +210,28 @@ function readText(json: unknown): string {
   return text;
 }
 
+/** What happened to one outbound request. Every request that is sent ends in exactly one of these. */
+export type RequestOutcome =
+  | 'ok'
+  | 'unusable' // answered, but the text was empty or not the JSON we asked for
+  | 'blocked' // safety or recitation block
+  | 'http_400'
+  | 'http_429'
+  | 'http_5xx'
+  | 'http_other'
+  | 'timeout'
+  | 'network';
+
+/**
+ * The only way a request leaves this module. `beforeRequest` runs immediately before EVERY outbound
+ * request (the first try and every retry, including format-downgrade retries after an HTTP 400) and
+ * throws to refuse it; a refused request is never sent. `afterRequest` reports what happened.
+ */
+export interface RequestGate {
+  beforeRequest(): Promise<void>;
+  afterRequest(outcome: RequestOutcome): void;
+}
+
 export interface GenerateOptions<T> {
   /** Short name for logs, e.g. "ask_question". */
   label: string;
@@ -219,7 +241,12 @@ export interface GenerateOptions<T> {
   /** Validates and normalises the parsed JSON. Throw to reject it. */
   parse: (value: unknown) => T;
   timeoutMs?: number;
+  /** Required: counts and may refuse each outbound request. */
+  gate: RequestGate;
 }
+
+/** A request description before it is handed to the gate (what prompts build). */
+export type GenerateRequest<T> = Omit<GenerateOptions<T>, 'gate'>;
 
 export interface GenerateResult<T> {
   data: T;
@@ -234,6 +261,8 @@ export async function generateJson<T>(options: GenerateOptions<T>): Promise<Gene
   const started = Date.now();
 
   for (let attempt = 0; attempt < 7; attempt += 1) {
+    // Outside the try/catch below: a refusal (wait, pause, storage failure) must pass through untouched.
+    await options.gate.beforeRequest();
     let res: Response;
     try {
       res = await fetch(`${BASE}/models/${encodeURIComponent(model)}:generateContent`, {
@@ -245,6 +274,7 @@ export async function generateJson<T>(options: GenerateOptions<T>): Promise<Gene
       });
     } catch (err) {
       const kind: GeminiErrorKind = isTimeoutError(err) ? 'timeout' : 'network';
+      options.gate.afterRequest(kind);
       logEvent('gemini_error', { label: options.label, kind, ms: Date.now() - started });
       throw new GeminiError(kind, kind === 'timeout' ? 'Gemini took too long to answer' : 'Could not reach Gemini');
     }
@@ -257,15 +287,23 @@ export async function generateJson<T>(options: GenerateOptions<T>): Promise<Gene
     }
 
     if (res.ok) {
-      const text = readText(json);
+      let text: string;
+      try {
+        text = readText(json);
+      } catch (err) {
+        options.gate.afterRequest(err instanceof GeminiError && err.kind === 'blocked' ? 'blocked' : 'unusable');
+        throw err;
+      }
       let data: T;
       try {
         data = options.parse(extractJson(text));
       } catch (err) {
+        options.gate.afterRequest('unusable');
         if (err instanceof GeminiError) throw err;
         logEvent('gemini_error', { label: options.label, kind: 'invalid_output', ms: Date.now() - started });
         throw new GeminiError('invalid_output', 'Gemini answered in an unexpected shape');
       }
+      options.gate.afterRequest('ok');
       logEvent('gemini_ok', { label: options.label, model, ms: Date.now() - started, format: f.format });
       const reported = isRecord(json) && typeof json.modelVersion === 'string' ? json.modelVersion : model;
       return { data, model: reported };
@@ -275,6 +313,7 @@ export async function generateJson<T>(options: GenerateOptions<T>): Promise<Gene
     const lower = `${info.message} ${info.status}`.toLowerCase();
 
     if (res.status === 400) {
+      options.gate.afterRequest('http_400');
       if (lower.includes('api key')) throw new GeminiError('auth', 'The Gemini API key was rejected', undefined, 400);
       if (lower.includes('location')) {
         throw new GeminiError('auth', 'The Gemini API is not available from this server location', undefined, 400);
@@ -284,6 +323,7 @@ export async function generateJson<T>(options: GenerateOptions<T>): Promise<Gene
       throw new GeminiError('bad_request', 'Gemini rejected the request format', undefined, 400);
     }
 
+    options.gate.afterRequest(res.status === 429 ? 'http_429' : res.status >= 500 ? 'http_5xx' : 'http_other');
     let error: GeminiError;
     if (res.status === 429) {
       const raw = info.raw.toLowerCase();

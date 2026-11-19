@@ -21,7 +21,7 @@ import { hasDailyRoomForAudit, isGeminiDailyExhausted } from '../quota/gemini-li
 import { reserveAudit, settleReservation, sweepStaleReservations } from '../quota/reservations';
 import type { JobSnapshot, StartErrorCode, StartResponse } from '../types';
 import type { AuditInput } from '../validation/input';
-import { createContext, isTavilyExhausted, PauseSignal, StopSignal, WaitSignal, type StageContext } from './context';
+import { createContext, isTavilyExhausted, PauseSignal, StopSignal, StorageSignal, WaitSignal, type StageContext } from './context';
 import { snapshotOf, STAGE_ORDER, type JobMeta, type StageId } from './job';
 import { runAskGemini } from './stages/ask-gemini';
 import { runAudienceSearch } from './stages/audience-search';
@@ -232,6 +232,19 @@ export async function advanceJob(id: string): Promise<JobSnapshot | null> {
           if (meta.stageIndex >= STAGE_ORDER.length) meta.status = 'complete';
         }
       } catch (err) {
+        // The audit store could not approve a Gemini request (nothing was sent or counted). This is not a stage
+        // failure: no attempt, error or warning is recorded and the audit is not failed, so it can carry on once
+        // the store answers. What this call had already recorded (its earlier requests) is kept if the store
+        // allows it; the Redis audit counter stays the durable count either way. The route reports a storage error.
+        if (err instanceof StorageSignal) {
+          meta.updatedAt = new Date().toISOString();
+          try {
+            await saveMeta(meta);
+          } catch {
+            /* the store is unavailable: nothing more can be saved */
+          }
+          throw err;
+        }
         if (err instanceof WaitSignal) {
           extra = { waitSeconds: err.seconds, waitReason: err.reason };
         } else if (err instanceof PauseSignal) {
@@ -258,6 +271,12 @@ export async function advanceJob(id: string): Promise<JobSnapshot | null> {
     await saveMeta(meta);
     return { ...snapshotOf(meta), ...extra };
   } finally {
-    await releaseJobLock(id, token);
+    // Best effort: if the store is failing, a failed release must not replace the error that is already on its
+    // way out (for example a StorageSignal). The lock expires by itself after 100 seconds.
+    try {
+      await releaseJobLock(id, token);
+    } catch {
+      logEvent('lock_release_failed', {});
+    }
   }
 }

@@ -17,6 +17,7 @@ import type {
   DisconnectSection,
   EvidenceItem,
   InsightEvidence,
+  Methodology,
   Metric,
   MetricOrSkipped,
   Report,
@@ -578,6 +579,17 @@ function displayBrandName(meta: JobMeta, data: JobData): string {
   return mostCommonCasing(meta.brand, texts) ?? meta.brand;
 }
 
+/** How the audit's Gemini requests ended; the gap between requests started and outcomes recorded is "interrupted". */
+function requestOutcomes(meta: JobMeta): Methodology['geminiRequestOutcomes'] {
+  const ledger = meta.geminiLedger;
+  if (!ledger) return undefined;
+  const out: NonNullable<Methodology['geminiRequestOutcomes']> = { ...ledger.outcomes };
+  const recorded = Object.values(ledger.outcomes).reduce((sum, n) => sum + (n ?? 0), 0);
+  const interrupted = Math.max(0, meta.geminiRequests - recorded);
+  if (interrupted > 0) out.interrupted = interrupted;
+  return out;
+}
+
 export function buildReport(job: JobMeta, data: JobData): Report {
   // Everything below uses the display spelling of the brand. Matching ignores capitalisation.
   const meta: JobMeta = { ...job, brand: displayBrandName(job, data) };
@@ -660,7 +672,7 @@ export function buildReport(job: JobMeta, data: JobData): Report {
   const model = reportedModel(meta, data);
 
   return {
-    version: 7,
+    version: 8,
     id: meta.id,
     brand: meta.brand,
     brandKey: meta.brandKey,
@@ -705,6 +717,7 @@ export function buildReport(job: JobMeta, data: JobData): Report {
       searches: meta.searches,
       tavilyCreditsUsed: meta.creditsSpent,
       geminiRequests: meta.geminiRequests,
+      geminiRequestOutcomes: requestOutcomes(meta),
       youtube: {
         status: youtube?.status ?? 'skipped',
         videos: youtube?.videos.length ?? 0,
