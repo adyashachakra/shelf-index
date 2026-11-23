@@ -89,6 +89,14 @@ export const PLAIN_FOLLOWERS: ReadonlySet<string> = new Set([
   'men', 'hq', 'xs', 'xl', 'xxl', 'spf', 'uv',
 ]);
 const NAME_PARTICLES = new Set(['de', 'di', 'da', 'del', 'van', 'von', 'der', 'la', 'le', 'el', 'al']);
+/**
+ * Field labels on a structured profile page ("# COS ID: IrthV3LEdVhE Website: www.cos.com", the shape of a company
+ * profile in a search index, for any brand). A follower is read as such a label, not as part of a different name, only
+ * when ALL hold: it is one of these words; the name it follows is the first thing in the field (leading whitespace and
+ * a "#" heading marker allowed); and a colon follows it with one code-like value (letters and at least one digit, no
+ * spaces, e.g. "IrthV3LEdVhE"). "COS ID" anywhere else, or "Nike ID: design your own…", is still a look-alike.
+ */
+const FIELD_LABELS: ReadonlySet<string> = new Set(['id']);
 
 // ---------- Folding with a position map ----------
 
@@ -176,11 +184,20 @@ function lookalikeAt(text: string, start: number, end: number): FoldedHit | null
     return { name: `${text.slice(start, end)} ${next} ${words[3]}`, from: start, to: end + words[0].length, rule: 'particle' };
   }
   const written = text.slice(start, end);
+  if (FIELD_LABELS.has(lower) && isProfileFieldLabel(text.slice(0, start), text.slice(end + words[1].length + next.length))) return null;
   const shortAllCaps = next.length >= 2 && next.length <= 3 && next === next.toUpperCase() && !PLAIN_FOLLOWERS.has(lower);
   if (shortAllCaps && /\p{Lu}/u.test(next) && normalizeName(next) !== normalizeName(written)) {
     return { name: `${written} ${next}`, from: start, to: end + words[1].length + next.length, rule: 'follower' };
   }
   return null;
+}
+
+const FIELD_START = /^\s*(?:#+[ \t]*)?$/;
+const CODE_VALUE = /^[ \t]*:[ \t]*(?=[\p{L}\p{N}]*\p{N})(?=[\p{L}\p{N}]*\p{L})[\p{L}\p{N}]+(?=\s|$)/u;
+
+/** See FIELD_LABELS: the name opens the field, and the label is followed by a colon and a code-like value. */
+function isProfileFieldLabel(before: string, afterLabel: string): boolean {
+  return FIELD_START.test(before) && CODE_VALUE.test(afterLabel);
 }
 
 /** For a short ambiguous name: the occurrences that stand alone, and the longer names they turned out to be part of. */

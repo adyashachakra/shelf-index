@@ -600,7 +600,12 @@ To run the tests yourself (optional, needs Node.js and a local Redis server on p
 - **Known limits of the format 9 rules.** A real different business whose name is exactly an allow-listed code
   ("COS SS") is no longer caught; a genuine one-letter name ("COS X") is no longer caught; sub-brand lines such
   as "Nike SB" or "Zara TRF" are still treated as look-alikes (not on the list); "COS DE <word>" and "COS ID" are
-  still flagged (`de` and `id` stay off the list, and the name-particle rule runs first). A short name written with a final dot ("e.l.f.") is not examined for spaced or hyphenated look-alikes, only for run-together forms such as "ELFRX"; this is how it behaved before, and a test pins it so any future change shows up. Durability is judged by a
+  still flagged (`de` and `id` stay off the list, and the name-particle rule runs first). One exception, for any brand: a company-profile field
+  label such as "# COS ID: IrthV3LEdVhE" (seen on the live format 9 COS audit, Nov 23) is not a different name. It
+  applies only when the name opens the field (leading spaces and a "#" heading marker allowed), "ID" follows it, and
+  then a colon and one code-like value with letters and at least one digit. "COS ID" anywhere else, "COS ID" without a
+  colon, "Nike ID: design your own shoes" and "COS IQ:" are still flagged. Remaining limitation: a genuinely different
+  business named "<brand> ID" written at the very start of a field with a colon and a code after it would be missed. A short name written with a final dot ("e.l.f.") is not examined for spaced or hyphenated look-alikes, only for run-together forms such as "ELFRX"; this is how it behaved before, and a test pins it so any future change shows up. Durability is judged by a
   word list over the question: "How long does the event last?" is read as durability (a note on a fact, not a
   wrong score), "Do the zippers break easily?" is not recognised, and one clause that is both a policy question and
   a durability question ("What is the warranty on durability?") is read as the policy. Compound questions are

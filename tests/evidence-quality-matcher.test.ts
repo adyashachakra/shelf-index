@@ -231,8 +231,9 @@ test('E2: "COS DE <word>" is still flagged (the particle rule runs first; "de" s
   assert.equal(bm.brandAttribution('COS DE online shop and COS coats', 'COS').state, 'mixed');
   assert.equal(bm.brandAttribution('COS DE online shop and COS coats', 'COS').lookalikes[0], 'COS DE online');
 });
-test('E3: "COS ID" is still flagged ("id" is not on the list)', () => {
+test('E3: "COS ID" is still flagged ("id" is not on the list) unless it is a field label followed by a colon (L1)', () => {
   assert.equal(bm.brandAttribution('COS ID and COS', 'COS').state, 'mixed');
+  assert.equal(bm.brandAttribution('COS ID-card and COS', 'COS').state, 'mixed');
 });
 test('E4: a genuine one-letter name is an accepted false negative', () => {
   assert.equal(bm.brandAttribution('COS X and COS', 'COS').state, 'clear');
@@ -427,4 +428,146 @@ test('the set-aside helper returns the reason and the context together, and no c
   const domainOnly = similarNameSetAside([{ name: 'title', text: 'Nothing relevant' }], 'cosgram.com', 'COS');
   assert.ok(domainOnly);
   assert.equal(domainOnly.matchedContext, undefined);
+});
+
+// =====================================================================================================
+// L. Live format 9 COS audit, Nov 23 (report c81c30c57cc8f2465550c4b8). Titles and the Tavily snippet are as the
+// report stored them; the other snippets are invented in the same shape.
+// =====================================================================================================
+
+const TAVILY_PROFILE = {
+  title: 'COS',
+  url: 'https://tavily.com/knowledge/company/IrthV3LEdVhE',
+  content:
+    '# COS ID: IrthV3LEdVhE Website: www.cos.com Headquarters: London, England, United Kingdom LinkedIn: www.linkedin.com/company/cos · 342,493 followers Industry: Retail Apparel and Fashion',
+};
+
+test('L1: "COS ID: IrthV3LEdVhE" on a company profile of COS is a field label, so the page is counted, not set aside', () => {
+  const fields: bm.BrandField[] = [
+    { name: 'title', text: TAVILY_PROFILE.title },
+    { name: 'snippet', text: TAVILY_PROFILE.content },
+  ];
+  const result = bm.brandAttributionOfFields(fields, 'COS');
+  assert.equal(result.state, 'clear');
+  assert.deepEqual(result.lookalikes, []);
+  const aside: SetAsideEvidence[] = [];
+  const items = resultsToEvidence({ results: asResults([TAVILY_PROFILE]), kind: 'review', prefix: 'R', brand: 'COS', startIndex: 0, seenUrls: new Set(), onSetAside: (e) => aside.push(e) });
+  assert.equal(items.length, 1);
+  assert.equal(aside.length, 0);
+});
+
+test('L1b: the field-label exception is narrow: "ID" at the start of the field, then a colon and a code-like value', () => {
+  for (const text of ['COS ID: IrthV3 and COS coats', 'COS ID : IrthV3 and COS coats', '  # COS ID: IrthV3LEdVhE Website: www.cos.com', '## COS ID: IrthV3LEdVhE Website: www.cos.com']) {
+    assert.equal(bm.brandAttribution(text, 'COS').state, 'clear', text);
+  }
+  for (const [text, lookalike] of [
+    ['COS ID and COS coats', 'COS ID'],
+    ['COS ID-card and COS', 'COS ID'],
+    ['COS ID\n: x and COS', 'COS ID'],
+    ['COS IQ: a review, and COS coats', 'COS IQ'],
+    ['COS RX: snail mucin, and COS coats', 'COS RX'],
+    ['COS IQ: Ab12cd and COS coats', 'COS IQ'],
+    ['COS RX: Ab12cd and COS coats', 'COS RX'],
+  ] as const) {
+    const result = bm.brandAttribution(text, 'COS');
+    assert.equal(result.state, 'mixed', text);
+    assert.deepEqual(result.lookalikes, [lookalike], text);
+  }
+});
+
+test('L2: "COS to COSRX" (the live Lemon8 title) is still a genuine look-alike, with its matched context intact', () => {
+  const page = { title: 'COS to COSRX - Trench Coats, Denim Jacket & Jeans', url: 'https://www.lemon8-app.com/experience/cos-reviews', content: 'Trench coats, denim jackets and jeans from COS, and a few COSRX skincare picks.' };
+  const aside: SetAsideEvidence[] = [];
+  const items = resultsToEvidence({ results: asResults([page]), kind: 'review', prefix: 'R', brand: 'COS', startIndex: 0, seenUrls: new Set(), onSetAside: (e) => aside.push(e) });
+  assert.equal(items.length, 0);
+  assert.equal(aside.length, 1);
+  assert.match(aside[0].reason, /Names both "COS" and "COSRX"/);
+  assert.deepEqual(aside[0].matchedContext, { text: 'COS to COSRX - Trench Coats, Denim Jacket & Jeans', markFrom: 7, markTo: 12, field: 'title', rule: 'run-together' });
+});
+
+test('L3: "Don\'t buy COS A/W 2026 until you watch this, Part 1" (the live title) is counted as COS evidence', () => {
+  const page = { title: "Don't buy COS A/W 2026 until you watch this, Part 1", url: 'https://www.youtube.com/watch?v=example1', content: 'My honest thoughts on the new COS season, piece by piece.' };
+  assert.equal(bm.brandAttributionOfFields([{ name: 'title', text: page.title }, { name: 'description', text: page.content }], 'COS').state, 'clear');
+  const aside: SetAsideEvidence[] = [];
+  const items = resultsToEvidence({ results: asResults([page]), kind: 'review', prefix: 'R', brand: 'COS', startIndex: 0, seenUrls: new Set(), onSetAside: (e) => aside.push(e) });
+  assert.equal(items.length, 1);
+  assert.equal(aside.length, 0);
+});
+
+test('L4: "COS COS" (Archinect shape: a caption ending "© COS" read straight on into "COS designer…") is the brand written twice, so the page is counted', () => {
+  const page = {
+    title: 'COS pays homage to the Bauhaus with their remastered capsule collection | News | Archinect',
+    url: 'https://archinect.com/news/article/example',
+    content: 'Image © COS COS designer Christophe Copin shares the thinking behind the capsule.',
+  };
+  const result = bm.brandAttributionOfFields([{ name: 'title', text: page.title }, { name: 'snippet', text: page.content }], 'COS');
+  assert.equal(result.state, 'clear');
+  assert.deepEqual(result.lookalikes, []);
+  const aside: SetAsideEvidence[] = [];
+  const items = resultsToEvidence({ results: asResults([page]), kind: 'review', prefix: 'R', brand: 'COS', startIndex: 0, seenUrls: new Set(), onSetAside: (e) => aside.push(e) });
+  assert.equal(items.length, 1);
+  assert.equal(aside.length, 0);
+  // The same shape with a genuine look-alike after it is still caught.
+  const genuine = bm.brandAttribution('Image © COS COS IQ designer, and COS coats', 'COS');
+  assert.equal(genuine.state, 'mixed', 'the repeated COS is not the trigger; "COS IQ" after the second COS is');
+  assert.deepEqual(genuine.lookalikes, ['COS IQ']);
+});
+
+test('L5: the field-label rule follows the page shape, not the brand: company-profile pages for Zara, Nike, ASOS and Gap are counted too', () => {
+  for (const [brand, text] of [
+    ['Zara', '# Zara ID: Xk29Lm Website: www.zara.com LinkedIn: www.linkedin.com/company/zara'],
+    ['Nike', '# Nike ID: Pq81Zt Website: www.nike.com LinkedIn: www.linkedin.com/company/nike'],
+    ['ASOS', '# ASOS ID: Rt55Qw Website: www.asos.com'],
+    ['Gap', '# Gap ID: Lm77Ab Website: www.gap.com'],
+  ] as const) {
+    const result = bm.brandAttributionOfFields([{ name: 'title', text: brand }, { name: 'snippet', text }], brand);
+    assert.equal(result.state, 'clear', `${brand}: ${text}`);
+    assert.deepEqual(result.lookalikes, [], brand);
+  }
+});
+
+test('L6: for other brands too, "ID" without a colon, a joined "ID-", and other followers before a colon are still look-alikes', () => {
+  for (const [brand, text, lookalike] of [
+    ['Zara', 'Zara ID and Zara coats', 'Zara ID'],
+    ['Nike', 'Nike ID and Nike shoes', 'Nike ID'],
+    ['Zara', 'Zara ID-card and Zara', 'Zara ID'],
+    ['Zara', 'Zara IQ: a review, and Zara coats', 'Zara IQ'],
+    ['Nike', 'Nike RX: a review, and Nike shoes', 'Nike RX'],
+  ] as const) {
+    const result = bm.brandAttribution(text, brand);
+    assert.equal(result.state, 'mixed', text);
+    assert.deepEqual(result.lookalikes, [lookalike], text);
+  }
+});
+
+test('L7: "ID:" in running text, after introductory text, or followed by words instead of a code is still a look-alike, for any brand', () => {
+  for (const [brand, text, lookalike] of [
+    ['Nike', 'Nike ID: design your own shoes, and Nike running', 'Nike ID'],
+    ['Nike', '# Nike ID: design your own shoes, and Nike running', 'Nike ID'],
+    ['COS', 'A company called COS ID: ... and COS clothing', 'COS ID'],
+    ['COS', 'A company called COS ID: Ab12cd and COS clothing', 'COS ID'],
+    ['Zara', 'Visit our partners. Zara ID: Xk29Lm and Zara coats', 'Zara ID'],
+    ['Zara', 'Profile\nZara ID: Xk29Lm and Zara coats', 'Zara ID'],
+    ['COS', '# COS ID: and COS coats', 'COS ID'],
+    ['COS', '# COS ID: IrthV3LEdVhE-extra and COS coats', 'COS ID'],
+  ] as const) {
+    const result = bm.brandAttribution(text, brand);
+    assert.equal(result.state, 'mixed', text);
+    assert.deepEqual(result.lookalikes, [lookalike], text);
+  }
+});
+
+test('L8: the field start is judged per field: a profile snippet is counted even when the title is the brand alone', () => {
+  const fields: bm.BrandField[] = [
+    { name: 'title', text: 'Gap' },
+    { name: 'snippet', text: '# Gap ID: Lm77Ab Website: www.gap.com' },
+  ];
+  assert.equal(bm.brandAttributionOfFields(fields, 'Gap').state, 'clear');
+  const prose: bm.BrandField[] = [
+    { name: 'title', text: 'Gap' },
+    { name: 'snippet', text: 'Our list. Gap ID: Lm77Ab and Gap jeans' },
+  ];
+  const result = bm.brandAttributionOfFields(prose, 'Gap');
+  assert.equal(result.state, 'mixed');
+  assert.equal(result.trigger?.field, 'snippet');
 });
