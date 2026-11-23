@@ -597,6 +597,10 @@ To run the tests yourself (optional, needs Node.js and a local Redis server on p
   a repeat audit after these rules run again instead of being handed a format 8 report. Format 8 and earlier
   reports are not migrated, rewritten or deleted; they open as saved until they expire. Preview and Production
   share one Redis, so the first request for a brand on a format 9 Preview spends a fresh audit.
+- **Report format 10.** The company-profile "ID:" fix changes which evidence is counted, so new reports are saved as
+  format 10 under `si:report:v10:` and `si:cache:v10:`. A cached format 9 report (for example the Nov 23 COS one) is
+  not handed to a repeat audit; it stays openable by its link, unchanged, until it expires. The report shape is the
+  same as format 9, and nothing is migrated, rewritten or deleted.
 - **Known limits of the format 9 rules.** A real different business whose name is exactly an allow-listed code
   ("COS SS") is no longer caught; a genuine one-letter name ("COS X") is no longer caught; sub-brand lines such
   as "Nike SB" or "Zara TRF" are still treated as look-alikes (not on the list); "COS DE <word>" and "COS ID" are

@@ -62,17 +62,21 @@ export const INFLIGHT_TTL_SECONDS = 26 * 60 * 60;
  * separately; and "how long does it last" questions are a claim kind of their own. "Found but not counted" entries can
  * also carry the text that triggered them. A cached format 8 report is therefore not handed to a repeat audit (it stays
  * openable by its link until it expires).
+ *
+ * 10: a company-profile field label at the start of a field ("# COS ID: IrthV3LEdVhE") is no longer read as a
+ * different name, so evidence a format 9 audit set aside can now be counted. A cached format 9 report is therefore not
+ * handed to a repeat audit (it stays openable by its link until it expires). The report shape is unchanged.
  */
-export const REPORT_FORMAT_VERSION = 9;
+export const REPORT_FORMAT_VERSION = 10;
 /**
- * Saved-report versions that can still be OPENED, newest first. Versions 3 to 9 only differ by
+ * Saved-report versions that can still be OPENED, newest first. Versions 3 to 10 only differ by
  * optional fields and by the rules that produced the verdicts, and the report pages treat every
  * newer field as optional, so older links keep working until they expire. Version 2 (the first
  * V1.1 preview) has the same overall shape and is opened as it was saved: nothing missing is filled
  * in. Version 1 (V1.0) has a different shape and cannot be rendered by these pages: V1.0 reports
  * stay on the original deployment.
  */
-export const READABLE_REPORT_VERSIONS: readonly number[] = [9, 8, 7, 6, 5, 4, 3, 2];
+export const READABLE_REPORT_VERSIONS: readonly number[] = [10, 9, 8, 7, 6, 5, 4, 3, 2];
 /** Share of the configured per-minute limit the app allows itself to use. */
 export const GEMINI_RPM_HEADROOM = 0.8;
 

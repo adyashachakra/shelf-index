@@ -35,13 +35,13 @@ const fixture = (version: number) => JSON.parse(fixtureText(version)) as Report;
 const idContext = (id: string) => ({ params: Promise.resolve({ id }) });
 const fake = (id: string, version: number) => JSON.stringify({ id, version, brand: 'Cetaphil' });
 
-test('I1: the report format is 9; formats 9, 8, 7, 6, 5, 4, 3 and 2 can be opened', () => {
-  assert.equal(REPORT_FORMAT_VERSION, 9);
-  assert.deepEqual([...READABLE_REPORT_VERSIONS], [9, 8, 7, 6, 5, 4, 3, 2]);
+test('J1: the report format is 10; formats 10, 9, 8, 7, 6, 5, 4, 3 and 2 can be opened', () => {
+  assert.equal(REPORT_FORMAT_VERSION, 10);
+  assert.deepEqual([...READABLE_REPORT_VERSIONS], [10, 9, 8, 7, 6, 5, 4, 3, 2]);
 });
 
-test('the fixtures are what they claim to be: saved reports of formats 2, 3, 4, 5, 6, 7 and 8', () => {
-  for (const version of [2, 3, 4, 5, 6, 7, 8]) {
+test('the fixtures are what they claim to be: saved reports of formats 2, 3, 4, 5, 6, 7, 8 and 9', () => {
+  for (const version of [2, 3, 4, 5, 6, 7, 8, 9]) {
     const report = fixture(version);
     assert.equal(report.version, version);
     assert.match(report.id, /^[0-9a-f]{24}$/);
@@ -49,7 +49,7 @@ test('the fixtures are what they claim to be: saved reports of formats 2, 3, 4, 
   }
 });
 
-for (const version of [2, 3, 4, 5, 6, 7, 8]) {
+for (const version of [2, 3, 4, 5, 6, 7, 8, 9]) {
   test(`a saved format ${version} report opens, and what the API returns is exactly what was saved`, async () => {
     const saved = fixture(version);
     await cmd('SET', `si:report:v${version}:${saved.id}`, fixtureText(version));
@@ -133,24 +133,58 @@ test('a format 6 report is not given an identity section it never had', async ()
   assert.equal(JSON.stringify(loaded), JSON.stringify(saved));
 });
 
-test('I2/I3: a new report is stored under format 9 and found first; older cached reports (including 8) are not offered for a new audit, and are not touched', async () => {
-  for (const version of [8, 7, 6, 5, 4, 3, 2]) {
+test('J2: a new report is stored under format 10 and found first; older cached reports (including 9) are not offered for a new audit, and are not touched', async () => {
+  for (const version of [9, 8, 7, 6, 5, 4, 3, 2]) {
     await cmd('SET', `si:report:v${version}:dddddddddddddddddddddd0${version}`, fake(`dddddddddddddddddddddd0${version}`, version));
     await cmd('SET', `si:cache:v${version}:skincare:cetaphil`, `dddddddddddddddddddddd0${version}`);
   }
-  assert.equal(await findCachedReportId('skincare:cetaphil'), null, 'a repeat audit must run again under the new rules');
+  assert.equal(await findCachedReportId('skincare:cetaphil'), null, 'a repeat audit must run again under the new rules, not reuse the format 9 report');
 
-  await saveReport({ id: 'eeeeeeeeeeeeeeeeeeeeeeee', version: 9 } as unknown as Report, 'skincare:cetaphil');
-  assert.equal(await cmd('EXISTS', 'si:report:v9:eeeeeeeeeeeeeeeeeeeeeeee'), 1);
-  assert.equal(await cmd('EXISTS', 'si:cache:v9:skincare:cetaphil'), 1, 'the pointer is in its own format 9 namespace');
+  await saveReport({ id: 'eeeeeeeeeeeeeeeeeeeeeeee', version: 10 } as unknown as Report, 'skincare:cetaphil');
+  assert.equal(await cmd('EXISTS', 'si:report:v10:eeeeeeeeeeeeeeeeeeeeeeee'), 1);
+  assert.equal(await cmd('EXISTS', 'si:cache:v10:skincare:cetaphil'), 1, 'the pointer is in its own format 10 namespace');
+  assert.equal(await cmd('EXISTS', 'si:report:v9:eeeeeeeeeeeeeeeeeeeeeeee'), 0, 'nothing new is written under format 9');
   assert.equal(await findCachedReportId('skincare:cetaphil'), 'eeeeeeeeeeeeeeeeeeeeeeee');
   assert.equal((await loadReport('eeeeeeeeeeeeeeeeeeeeeeee'))?.id, 'eeeeeeeeeeeeeeeeeeeeeeee');
   // The older reports and their pointers are still there, unchanged, and still readable alongside it.
-  for (const version of [8, 7, 6, 5, 4, 3, 2]) {
+  for (const version of [9, 8, 7, 6, 5, 4, 3, 2]) {
     assert.equal((await loadReport(`dddddddddddddddddddddd0${version}`))?.id, `dddddddddddddddddddddd0${version}`);
     assert.equal(await cmd('GET', `si:cache:v${version}:skincare:cetaphil`), `dddddddddddddddddddddd0${version}`, `the format ${version} pointer was not deleted or rewritten`);
     assert.equal(await cmd('GET', `si:report:v${version}:dddddddddddddddddddddd0${version}`), fake(`dddddddddddddddddddddd0${version}`, version), `the format ${version} report was not rewritten`);
   }
+});
+
+test('J3: a pointer in the format 10 namespace that leads to a report saved only under format 9 is not offered', async () => {
+  await cmd('SET', 'si:report:v9:ffffffffffffffffffffffff', fake('ffffffffffffffffffffffff', 9));
+  await cmd('SET', 'si:cache:v10:fashion:cos', 'ffffffffffffffffffffffff');
+  assert.equal(await findCachedReportId('fashion:cos'), null);
+  assert.equal((await loadReport('ffffffffffffffffffffffff'))?.version, 9, 'the format 9 report itself still opens by its id');
+});
+
+test('J4: a saved format 9 report with matchedContext entries is returned exactly as saved, field intact', async () => {
+  const saved: Report = {
+    ...fixture(9),
+    id: 'abababababababababababab',
+    identity: {
+      ...(fixture(9).identity as NonNullable<Report['identity']>),
+      setAside: [
+        {
+          title: 'COS',
+          url: 'https://profiles.example.org/company/cos',
+          domain: 'profiles.example.org',
+          reason: 'Names both "COS" and "COS ID" (a different name), so what it says cannot be attributed to COS.',
+          matchedContext: { text: '# COS ID: Ab12Cd34 Website: www.cos.example', markFrom: 2, markTo: 8, field: 'snippet', rule: 'follower' },
+        },
+      ],
+      setAsideCount: 1,
+    },
+  };
+  const text = JSON.stringify(saved);
+  await cmd('SET', `si:report:v9:${saved.id}`, text);
+  const loaded = (await loadReport(saved.id)) as Report;
+  assert.equal(loaded.version, 9);
+  assert.equal(JSON.stringify(loaded), text, 'not re-classified or rewritten under the new matcher');
+  assert.deepEqual(loaded.identity?.setAside[0].matchedContext, saved.identity?.setAside[0].matchedContext);
 });
 
 test('H15: a saved format 8 report has no matchedContext on any set-aside entry and is returned exactly as saved', async () => {

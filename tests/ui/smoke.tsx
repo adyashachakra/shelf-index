@@ -201,7 +201,7 @@ if (dumpPath && existsSync(dumpPath)) {
 
 // Formats 7 and 8 (real engine output over the simulated services) open without either earlier-version notice
 // and without anything the later format added.
-for (const version of [7, 8]) {
+for (const version of [7, 8, 9]) {
   const saved = JSON.parse(readFileSync(new URL(`../fixtures/report-format-${version}.json`, import.meta.url), 'utf8')) as Report;
   const html = page(`format${version}`, <ReportView report={saved} />);
   checks.push([`format${version}`, html, [saved.brand, 'Single-audit estimate', 'Sources and methodology']]);

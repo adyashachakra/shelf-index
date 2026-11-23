@@ -277,7 +277,7 @@ test('the rule catches COS + COSRX even when the reader says "yes", and only tha
   assert.deepEqual(withMixed.report.contentGap.metric, control.report.contentGap.metric);
   assert.deepEqual(withMixed.report.evidence.map((e) => e.url), control.report.evidence.map((e) => e.url));
   assert.deepEqual(withMixed.report.fixes.map((f) => f.evidenceIds), control.report.fixes.map((f) => f.evidenceIds));
-  assert.equal(withMixed.report.version, 9, 'the report format is the current one');
+  assert.equal(withMixed.report.version, 10, 'the report format is the current one');
   if (process.env.SI_DUMP_MIXED_REPORT) writeFileSync(process.env.SI_DUMP_MIXED_REPORT, JSON.stringify(withMixed.report));
   assert.equal(control.report.identity?.setAside?.some((e) => e.url === LEMON8_PAGE.url) ?? false, false);
 });
@@ -408,7 +408,7 @@ test('competitor sentiment: a mixed page about a competitor is not counted, and 
 test('an ordinary COS audit with no mixed pages is unchanged by the rule', async () => {
   state.scenario = cosFashion({ sameBusiness: () => 'yes', fixIds: ['R1', 'R2', 'R3'] });
   const { report } = await audit('COS');
-  assert.equal(report.version, 9);
+  assert.equal(report.version, 10);
   assert.deepEqual(report.evidence.map((e) => e.url).filter((u) => u.includes('example')).sort(), [COS_REVIEW_1.url, COS_REVIEW_2.url, COS_REVIEW_3.url].sort());
   assert.ok((report.identity?.setAside ?? []).every((e) => !/Names both/.test(e.reason)), 'nothing is called mixed when nothing is');
 });

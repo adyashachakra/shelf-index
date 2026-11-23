@@ -593,7 +593,7 @@ export interface IdentitySection {
 
 export interface Report {
   /** 8 for new reports. Older reports are still read: every field added since is optional. */
-  version: 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9;
+  version: 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10;
   id: string;
   /** True only for the bundled example with a fictional brand. */
   illustrative?: boolean;

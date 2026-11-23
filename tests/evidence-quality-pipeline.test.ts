@@ -131,7 +131,7 @@ test('D3/H: web results: an "A/W" page and a caption-then-sentence page are evid
   assert.equal(entry.matchedContext.rule, 'follower');
   assert.equal(entry.matchedContext.text.slice(entry.matchedContext.markFrom, entry.matchedContext.markTo), 'COS IQ');
   assert.ok(entry.matchedContext.text.length <= 160);
-  assert.equal(report.version, 9);
+  assert.equal(report.version, 10);
   assert.equal(report.version, REPORT_FORMAT_VERSION);
 });
 
@@ -206,4 +206,30 @@ test('H16: entries the real pipeline sets aside from long snippets keep their co
     assert.equal(c.text.slice(c.markFrom, c.markTo), 'COS IQ');
     assert.ok(Buffer.byteLength(JSON.stringify(c)) < 260, `the field is ${Buffer.byteLength(JSON.stringify(c))} bytes`);
   }
+});
+
+test('J5: a format 9 COS report in the cache is not reused; the new audit runs under format 10 and counts the company-profile page the format 9 matcher set aside', async () => {
+  const PROFILE = {
+    title: 'COS',
+    url: 'https://profiles.example.org/company/cos',
+    content: '# COS ID: Ab12Cd34 Website: www.cos.com Headquarters: London. Industry: clothing and fashion retail, with stores in many cities.',
+  };
+  // What a format 9 deployment left behind: a cached COS report that set this page aside, and its pointer.
+  const oldId = 'c9c9c9c9c9c9c9c9c9c9c9c9';
+  const oldReport = JSON.stringify({ id: oldId, version: 9, brand: 'COS', identity: { setAside: [{ title: 'COS', url: PROFILE.url, domain: 'profiles.example.org', reason: 'Names both "COS" and "COS ID" (a different name), so what it says cannot be attributed to COS.' }] } });
+  await shim.raw('SET', `si:report:v9:${oldId}`, oldReport);
+  await shim.raw('SET', 'si:cache:v9:fashion:cos', oldId);
+
+  state.scenario = cosFashion({ reviews: [REVIEW_PLAIN, PROFILE, OWN_PAGE] });
+  const { id, report } = await audit('COS');
+  assert.notEqual(id, oldId, 'a new audit ran instead of the cached format 9 report being served');
+  assert.equal(report.version, 10);
+  assert.equal(await shim.raw('EXISTS', `si:report:v10:${id}`), 1);
+  assert.equal(await shim.raw('GET', 'si:cache:v10:fashion:cos'), id);
+  assert.ok(report.evidence.some((e) => e.url === PROFILE.url), 'the profile page is counted under the updated matcher');
+  assert.ok(!(report.identity?.setAside ?? []).some((e) => e.url === PROFILE.url), 'and is not listed as set aside');
+  // The format 9 report and its pointer are untouched and the old report still opens by its id.
+  assert.equal(await shim.raw('GET', `si:report:v9:${oldId}`), oldReport);
+  assert.equal(await shim.raw('GET', 'si:cache:v9:fashion:cos'), oldId);
+  assert.equal((await loadReport(oldId))?.version, 9);
 });
