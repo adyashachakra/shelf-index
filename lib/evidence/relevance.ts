@@ -367,7 +367,7 @@ export function applyQuoteRules(input: { itemText: string; quote: string; outcom
 // does not recognise as a claim question keeps the verdict the analysis gave.
 // ---------------------------------------------------------------------------------------------
 
-export type ClaimKind = 'expert' | 'clinical' | 'effectiveness' | 'suitability';
+export type ClaimKind = 'expert' | 'clinical' | 'durability' | 'effectiveness' | 'suitability';
 
 const CLINICAL_Q = /\b(?:clinical\w*|clinically|proven|proof|studies|study|trials?|dermatologist[- ]tested)\b/i;
 const EFFECTIVENESS_Q = /\b(?:work|works|worked|working|effective\w*|results?|efficacy|performance|perform\w*|reduces?|reduced|improves?|improved|treat\w*|heal\w*|repair\w*)\b/i;
@@ -376,15 +376,82 @@ const SUITABILITY_Q = /\b(?:best|better|ideal|suit\w*|safe\w*|gentle|good|great|
 const CLAIM_NOUN: Record<ClaimKind, string> = {
   expert: 'that experts recommend it',
   clinical: 'its clinical performance',
+  durability: 'that it lasts or holds up over time',
   effectiveness: 'that it is effective',
   suitability: 'that it is the best or a suitable choice',
 };
+
+// Durability ("how long do they last?") is a claim about the product that only use over time can show, so a brand's own
+// sentence about it is the brand's claim. It is judged one clause at a time: a clause that only asks for a POLICY the
+// brand controls (a warranty, a return window, whether it repairs) is a fact the brand's pages can state, and it never
+// cancels a different clause of the same question that asks about durability.
+const DURABILITY_Q: RegExp[] = [
+  /\bdurab\w*/i,
+  /\blongevity\b/i,
+  /\blong[- ]lasting\b/i,
+  /\bhard[- ]wearing\b/i,
+  /\bholds?\s+up\b|\bholding\s+up\b/i,
+  /\bstands?\s+up\s+to\b/i,
+  /\bwears?\s+(?:well|out)\b/i,
+  /\bquality\s+over\s+time\b/i,
+  /\bstands?\s+the\s+test\s+of\s+time\b/i,
+  /\blast(?:s|ing)?\s+for\s+(?:[\w'’-]+\s+){0,3}(?:years?|decades?|seasons?|lifetime|ages)\b/i,
+  /\blast(?:s|ing)?\s+(?:longer|longest|the\s+longest|a\s+long\s+time|beyond|forever)\b/i,
+  // Third person only, so "the last several years" does not match.
+  /\blasts\s+(?:\d+|several|many|a\s+few|multiple)\s+years\b/i,
+];
+const HOW_LONG = /\bhow\s+long\b((?:\s+[\w'’-]+){0,5}?)\s+(?:lasts?|holds?\s+up|wears?\s+out)\b/i;
+/** Words that make "how long" a question about time for something else ("how long does delivery take"). */
+const NOT_DURABILITY_WORDS = new Set(['take', 'takes', 'ship', 'shipping', 'deliver', 'delivery', 'arrive', 'arrives', 'process', 'return', 'returns', 'sale', 'sales', 'offer', 'promotion', 'discount', 'window', 'trial']);
+
+function isDurabilityClause(clause: string): boolean {
+  if (DURABILITY_Q.some((pattern) => pattern.test(clause))) return true;
+  const howLong = clause.match(HOW_LONG);
+  if (!howLong) return false;
+  return howLong[1].trim().split(/\s+/).filter(Boolean).every((word) => !NOT_DURABILITY_WORDS.has(word.toLowerCase()));
+}
+
+const STORE_WORDS = '(?:the\\s+(?:brand|company|store|shop|retailer)|[\\w&\'’.-]+)';
+// P1: a policy noun.
+const POLICY_NOUN =
+  /\bwarrant(?:y|ies)\b|\b(?:a|the|any|lifetime|money-back)\s+guarantees?\b|\breturns?\s+(?:policy|policies|window|period)\b|\brefund\s+(?:policy|policies)\b|\brepair\s+(?:services?|programs?|programmes?|schemes?)\b|\breplacement\s+(?:policy|policies)\b|\bcare\s+instructions\b/i;
+// P2: someone acting on a policy ("can I return them", "does COS repair worn items").
+const POLICY_ACT = new RegExp(`\\b(?:can|could|may|do|does|will|would)\\s+(${STORE_WORDS})\\s+(?:return|exchange|refund|repair|replace|send\\s+back)\\b`, 'i');
+const POLICY_SUBJECTS = new Set(['i', 'we', 'you', 'they', 'it', 'customers', 'customer', 'shoppers', 'shopper', 'people', 'anyone']);
+// P3: asking whether a policy exists.
+const POLICY_EXISTS_THERE = /\b(?:is|are)\s+there\s+(?:a|an|any)\s+(?:[\w'’-]+\s+){0,2}(?:warrant(?:y|ies)|guarantees?|repairs?|returns?|replacements?|refunds?)\b/i;
+const POLICY_EXISTS_DOES = new RegExp(`\\bdoes\\s+${STORE_WORDS}\\s+(?:offer|provide|have|include|do)\\s+(?:[\\w'’-]+\\s+){0,3}(?:repairs?|replacements?|returns?|refunds?|warrant(?:y|ies)|guarantees?)\\b`, 'i');
+
+/** Does this clause ask for a policy fact the brand controls (as opposed to how the product performs)? */
+function isPolicyClause(clause: string): boolean {
+  if (POLICY_NOUN.test(clause) || POLICY_EXISTS_THERE.test(clause) || POLICY_EXISTS_DOES.test(clause)) return true;
+  const acting = clause.match(POLICY_ACT);
+  if (!acting) return false;
+  const subject = acting[1];
+  // A pronoun, "the brand" or a capitalised name ("COS") is someone acting on a policy; a plain lower-case noun
+  // ("does retinol repair the skin") is a product doing something.
+  return /^the\s/i.test(subject) || POLICY_SUBJECTS.has(subject.toLowerCase()) || /^\p{Lu}/u.test(subject);
+}
+
+/** The clauses of a question: split at commas, semicolons, question marks and "and, but, plus, also, while, though". */
+function clausesOf(text: string): string[] {
+  return text
+    .split(/[,;?]|\b(?:and|but|plus|also|while|though)\b/i)
+    .map((part) => part.trim())
+    .filter((part) => part !== '');
+}
 
 /** What kind of claim does this question ask about, or null when it asks for a fact the brand's pages can state. */
 export function claimKind(text: string): ClaimKind | null {
   if (isExpertRecommendationQuestion(text)) return 'expert';
   if (CLINICAL_Q.test(text)) return 'clinical';
-  if (EFFECTIVENESS_Q.test(text)) return 'effectiveness';
+  const clauses = clausesOf(text);
+  const policy = clauses.map(isPolicyClause);
+  // A durability clause that is not itself a policy question makes this a durability question; a policy clause never cancels it.
+  if (clauses.some((clause, index) => !policy[index] && isDurabilityClause(clause))) return 'durability';
+  // "Does the brand offer a repair service?" is a fact; "Which moisturisers repair the skin barrier?" is an effectiveness claim.
+  const performance = policy.some(Boolean) ? clauses.filter((_, index) => !policy[index]).join(' ') : text;
+  if (EFFECTIVENESS_Q.test(performance)) return 'effectiveness';
   if (SUITABILITY_Q.test(text)) return 'suitability';
   return null;
 }

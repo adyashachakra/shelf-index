@@ -1,6 +1,15 @@
 import 'server-only';
 import type { TavilyResult } from '../clients/tavily';
-import { brandAttribution, domainBelongsToBrand, domainResemblesBrand, mentionsBrand, isShortAmbiguousName, mentionsBrandLoosely } from '../evidence/brand-match';
+import {
+  brandAttributionOfFields,
+  domainBelongsToBrand,
+  domainResemblesBrand,
+  isShortAmbiguousName,
+  matchedContext,
+  mentionsBrandInFields,
+  mentionsBrandLoosely,
+  type BrandField,
+} from '../evidence/brand-match';
 import {
   canonicalUrl,
   clean,
@@ -12,7 +21,7 @@ import {
   stripBoilerplate,
 } from '../evidence/normalize';
 import { detectSponsorship } from '../evidence/sponsorship';
-import type { EvidenceItem, EvidenceKind, SetAsideEvidence, SitePage } from '../types';
+import type { EvidenceItem, EvidenceKind, MatchedContext, SetAsideEvidence, SitePage } from '../types';
 import type { JobData } from './job';
 
 /**
@@ -29,21 +38,30 @@ export function mixedByReaderReason(brand: string): string {
   return `Read and judged to discuss both ${brand} and a different business with a similar name, so what it says cannot be attributed to ${brand}.`;
 }
 
+/** The context for the look-alike that decided an attribution, or undefined when it has none. */
+function contextOf(fields: BrandField[], trigger: ReturnType<typeof brandAttributionOfFields>['trigger']): MatchedContext | undefined {
+  return trigger ? matchedContext(fields[trigger.index].text, trigger, trigger.field) : undefined;
+}
+
 /**
- * Why a result that used a similar name was not counted as the brand, or null when it did not use one.
- * "COS RX" and "cos-IQ" are other names that begin with "cos"; "cosgramusa.com" only contains it.
- * An item that names the brand and the look-alike together is "mixed" (see brandAttribution).
+ * Why a result that used a similar name was not counted as the brand, or null when it did not use one, and the text that
+ * triggered it when there is one. "COS RX" and "cos-IQ" are other names that begin with "cos"; "cosgramusa.com" only
+ * contains it. An item that names the brand and the look-alike together is "mixed" (see brandAttributionOfFields).
+ * Each field (title, snippet…) is examined on its own.
  */
-export function similarNameReason(text: string, domain: string, brand: string): string | null {
+export function similarNameSetAside(fields: BrandField[], domain: string, brand: string): { reason: string; matchedContext?: MatchedContext } | null {
   if (isShortAmbiguousName(brand)) {
-    const attribution = brandAttribution(text, brand);
-    if (attribution.state === 'mixed') return mixedNameReason(brand, attribution.lookalikes);
-    if (attribution.state === 'other') return `Names "${attribution.lookalikes.slice(0, 2).join('" and "')}", which is a different name from "${brand}".`;
-  } else if (!mentionsBrand(text, brand) && mentionsBrandLoosely(text, brand)) {
-    return `The name appears only in a form that is not "${brand}".`;
+    const attribution = brandAttributionOfFields(fields, brand);
+    const matched = contextOf(fields, attribution.trigger);
+    if (attribution.state === 'mixed') return { reason: mixedNameReason(brand, attribution.lookalikes), ...(matched ? { matchedContext: matched } : {}) };
+    if (attribution.state === 'other') {
+      return { reason: `Names "${attribution.lookalikes.slice(0, 2).join('" and "')}", which is a different name from "${brand}".`, ...(matched ? { matchedContext: matched } : {}) };
+    }
+  } else if (!mentionsBrandInFields(fields, brand) && fields.some((field) => mentionsBrandLoosely(field.text, brand))) {
+    return { reason: `The name appears only in a form that is not "${brand}".` };
   }
   if (domainResemblesBrand(domain, brand)) {
-    return `The web address ${domain} resembles the name but is not an exact match, so it was not treated as the brand's site.`;
+    return { reason: `The web address ${domain} resembles the name but is not an exact match, so it was not treated as the brand's site.` };
   }
   return null;
 }
@@ -77,7 +95,11 @@ export function resultsToEvidence(options: {
     if (domain === '' || isSocialDomain(domain)) continue;
     const title = clean(result.title);
     const text = clip(clean(result.content), 1100);
-    const named = mentionsBrand(`${title} ${text}`, options.brand);
+    const fields: BrandField[] = [
+      { name: 'title', text: title },
+      { name: 'snippet', text },
+    ];
+    const named = mentionsBrandInFields(fields, options.brand);
     if (domainBelongsToBrand(domain, options.brand)) {
       // A page on the brand's own address that also names the brand is what establishes the address.
       if (named) options.onBrandDomain?.(domain);
@@ -87,15 +109,16 @@ export function resultsToEvidence(options: {
     // An item that names the brand together with a look-alike ("COS to COSRX") is unverified: it is never evidence about
     // the brand, whatever else it says. Only short ambiguous names are examined; the brand's own pages are not.
     if (named && !domainBelongsToBrand(domain, options.brand)) {
-      const attribution = brandAttribution(`${title} ${text}`, options.brand);
+      const attribution = brandAttributionOfFields(fields, options.brand);
       if (attribution.state === 'mixed') {
-        options.onSetAside?.({ title: clip(title, 120), url: result.url, domain, reason: mixedNameReason(options.brand, attribution.lookalikes) });
+        const matched = contextOf(fields, attribution.trigger);
+        options.onSetAside?.({ title: clip(title, 120), url: result.url, domain, reason: mixedNameReason(options.brand, attribution.lookalikes), ...(matched ? { matchedContext: matched } : {}) });
         continue;
       }
     }
     if (!named) {
-      const reason = similarNameReason(`${title} ${text}`, domain, options.brand);
-      if (reason !== null) options.onSetAside?.({ title: clip(title, 120), url: result.url, domain, reason });
+      const similar = similarNameSetAside(fields, domain, options.brand);
+      if (similar !== null) options.onSetAside?.({ title: clip(title, 120), url: result.url, domain, ...similar });
       continue;
     }
     const key = canonicalUrl(result.url);

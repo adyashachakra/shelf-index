@@ -1,4 +1,4 @@
-import type { EvidenceItem, EvidenceKind, Report } from '@/lib/types';
+import type { EvidenceItem, EvidenceKind, MatchedContext, Report } from '@/lib/types';
 import { formatDateTime, Section, SourceLink } from './parts';
 
 const KIND_HEADINGS: { kind: EvidenceKind; title: string }[] = [
@@ -9,6 +9,32 @@ const KIND_HEADINGS: { kind: EvidenceKind; title: string }[] = [
   { kind: 'site_page', title: "The brand's own pages" },
   { kind: 'claim_source', title: 'Sources used to check statements' },
 ];
+
+const CONTEXT_RULE_TEXT: Record<MatchedContext['rule'], string> = {
+  follower: 'a short capitalised word after the name',
+  particle: 'the name followed by a name particle',
+  joined: 'the name joined by a hyphen',
+  prefix: 'joined to an earlier word by a hyphen',
+  'run-together': 'the name with letters written straight on',
+};
+const CONTEXT_FIELDS = new Set(['title', 'snippet', 'description', 'page text', 'comment']);
+
+/**
+ * The text that triggered a "Found but not counted" entry, with the triggering part highlighted. Reports saved before
+ * format 9 have no such field, and a field that is not well formed is ignored, so those entries show exactly as before.
+ * React renders the text as plain text, so nothing in it can act as markup.
+ */
+function matchedContextOf(entry: { matchedContext?: unknown }): MatchedContext | null {
+  const c = entry.matchedContext as Partial<MatchedContext> | null | undefined;
+  if (!c || typeof c !== 'object') return null;
+  if (typeof c.text !== 'string' || !Number.isInteger(c.markFrom) || !Number.isInteger(c.markTo)) return null;
+  const from = c.markFrom as number;
+  const to = c.markTo as number;
+  if (from < 0 || to <= from || to > c.text.length) return null;
+  if (typeof c.field !== 'string' || !CONTEXT_FIELDS.has(c.field)) return null;
+  if (typeof c.rule !== 'string' || !(c.rule in CONTEXT_RULE_TEXT)) return null;
+  return c as MatchedContext;
+}
 
 const TIER_TEXT = {
   full: 'Full: every search in the plan',
@@ -148,6 +174,17 @@ export function SourcesAndMethod({ report }: { report: Report }) {
                     </SourceLink>
                     <span className="text-ink-faint"> {entry.domain}</span>
                     <span className="block text-ink-soft">{entry.reason}</span>
+                    {(() => {
+                      const matched = matchedContextOf(entry);
+                      if (!matched) return null;
+                      return (
+                        <span className="block text-ink-soft">
+                          Text that triggered this ({matched.field}, {CONTEXT_RULE_TEXT[matched.rule]}): {matched.text.slice(0, matched.markFrom)}
+                          <mark className="bg-yellow-200 text-ink">{matched.text.slice(matched.markFrom, matched.markTo)}</mark>
+                          {matched.text.slice(matched.markTo)}
+                        </span>
+                      );
+                    })()}
                   </li>
                 ))}
               </ul>

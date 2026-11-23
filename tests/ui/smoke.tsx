@@ -10,7 +10,7 @@ import { SiteFooter } from '@/components/SiteFooter';
 import { SiteHeader } from '@/components/SiteHeader';
 import { ReportView } from '@/components/report/ReportView';
 import { EXAMPLE_REPORT } from '@/lib/report/example-report';
-import type { Report } from '@/lib/types';
+import type { Report, SetAsideEvidence } from '@/lib/types';
 
 const out = process.argv[2] ?? '/tmp/si-ui';
 mkdirSync(out, { recursive: true });
@@ -113,6 +113,32 @@ const withSetAside: Report = {
   },
 };
 
+// Report format 9: "Found but not counted" entries with and without the matched-context field. A format 7 or 8
+// report (and any entry without the field, or with a malformed one) must render exactly as before.
+const asideBase = [
+  { title: 'Plain entry without context', url: 'https://reviews.example.org/plain', domain: 'reviews.example.org', reason: 'Read and judged to be about a different business that has a similar name.' },
+  { title: 'Entry with context', url: 'https://reviews.example.org/with', domain: 'reviews.example.org', reason: 'Names both "COS" and "COS IQ" (a different name), so what it says cannot be attributed to COS.' },
+];
+const goodText = 'We also tried a COS IQ serum from a different company';
+const goodContext = { text: goodText, markFrom: goodText.indexOf('COS IQ'), markTo: goodText.indexOf('COS IQ') + 6, field: 'snippet' as const, rule: 'follower' as const };
+const identityWith = (setAside: SetAsideEvidence[]) => ({
+  status: 'recognised' as const,
+  geminiRecognised: true,
+  verifiedDomain: null,
+  summary: 'Gemini recognised the brand in this category.',
+  setAside,
+  setAsideCount: setAside.length,
+});
+const withContext: Report = { ...EXAMPLE_REPORT, illustrative: false, version: 9, identity: identityWith([asideBase[0], { ...asideBase[1], matchedContext: goodContext }]) };
+const withoutContext: Report = { ...EXAMPLE_REPORT, illustrative: false, version: 8, identity: identityWith(asideBase) };
+const malformed: Report = {
+  ...withoutContext,
+  version: 9,
+  identity: identityWith([asideBase[0], { ...asideBase[1], matchedContext: { text: 'abc', markFrom: 50, markTo: 99, field: 'snippet', rule: 'follower' } }, { ...asideBase[1], url: 'https://reviews.example.org/odd', matchedContext: 'not an object' as never }]),
+};
+const hostileText = 'a <b>bold</b> <script>alert(1)</script> COS IQ end';
+const hostile: Report = { ...withContext, identity: identityWith([{ ...asideBase[1], matchedContext: { text: hostileText, markFrom: hostileText.indexOf('COS IQ'), markTo: hostileText.indexOf('COS IQ') + 6, field: 'comment' as const, rule: 'follower' as const } }]) };
+
 // The three new rules as a reader sees them: each note must be displayed next to its item.
 const withNewRules: Report = {
   ...EXAMPLE_REPORT,
@@ -142,6 +168,8 @@ const checks: [string, string, string[]][] = [
   ...fixtureChecks(),
   ['newrules', page('newrules', <ReportView report={withNewRules} />), ['suits a range of types', 'is not availability information', 'counts as touched on, not as a clear answer', 'It is shown as the brand', 'A named expert or organisation is quoted', 'Touched on \u2014 brand claim', 'does not independently establish that it is the best or a suitable choice', 'The pages read here are the brand', '1 customer or reviewer source (2 excerpts in total)']],
   ['setaside', page('setaside', <ReportView report={withSetAside} />), ['Price position: not established.', 'Found but not counted as independent evidence', 'a press release or company announcement', 'galderma.com']],
+  ['context', page('context', <ReportView report={withContext} />), ['Found but not counted', 'Text that triggered this', '>COS IQ</mark>', 'a short capitalised word after the name', 'We also tried a ', 'Plain entry without context']],
+  ['hostile-context', page('hostile-context', <ReportView report={hostile} />), ['Text that triggered this', '&lt;b&gt;bold&lt;/b&gt;', '&lt;script&gt;', '>COS IQ</mark>']],
   ['empty', page('empty', <ReportView report={empty} />), ['Insufficient data', 'Could not be assessed', 'Overall confidence: Not stated']],
   ['notfound', page('notfound', <NotFound />), ['not found']],
 ];
@@ -169,6 +197,34 @@ if (mixedDump && existsSync(mixedDump)) {
 if (dumpPath && existsSync(dumpPath)) {
   const fromEngine = JSON.parse(readFileSync(dumpPath, 'utf8')) as Report;
   checks.push(['pipeline', page('pipeline', <ReportView report={fromEngine} />), ['Could not be assessed', 'Hypothesis to test, not a measured result', 'How the sample breaks down', 'Why this model', 'Uncertain', 'about sunscreen', 'Products identified in the pages read', 'supported by independent sources']]);
+}
+
+// Formats 7 and 8 (real engine output over the simulated services) open without either earlier-version notice
+// and without anything the later format added.
+for (const version of [7, 8]) {
+  const saved = JSON.parse(readFileSync(new URL(`../fixtures/report-format-${version}.json`, import.meta.url), 'utf8')) as Report;
+  const html = page(`format${version}`, <ReportView report={saved} />);
+  checks.push([`format${version}`, html, [saved.brand, 'Single-audit estimate', 'Sources and methodology']]);
+  for (const absent of ['Text that triggered this', 'saved before audits checked whether the brand is recognised', 'saved before the latest changes']) {
+    if (html.includes(absent)) {
+      console.error(`FABRICATED in format${version}: ${absent}`);
+      process.exitCode = 1;
+    }
+  }
+}
+// An entry without the field, or with a malformed one, renders byte-for-byte like an entry that never had it.
+{
+  const plainHtml = renderToStaticMarkup(<ReportView report={{ ...withoutContext, version: 9 }} />);
+  const malformedHtml = renderToStaticMarkup(<ReportView report={malformed} />);
+  const stripped = renderToStaticMarkup(<ReportView report={{ ...malformed, identity: identityWith([asideBase[0], asideBase[1], { ...asideBase[1], url: 'https://reviews.example.org/odd' }]) }} />);
+  if (plainHtml.includes('Text that triggered this') || malformedHtml.includes('Text that triggered this')) {
+    console.error('A missing or malformed matchedContext must show nothing extra');
+    process.exitCode = 1;
+  }
+  if (malformedHtml !== stripped) {
+    console.error('A malformed matchedContext must render exactly like an entry without it');
+    process.exitCode = 1;
+  }
 }
 
 let failed = false;

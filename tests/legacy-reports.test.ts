@@ -35,13 +35,13 @@ const fixture = (version: number) => JSON.parse(fixtureText(version)) as Report;
 const idContext = (id: string) => ({ params: Promise.resolve({ id }) });
 const fake = (id: string, version: number) => JSON.stringify({ id, version, brand: 'Cetaphil' });
 
-test('the report format is 8; formats 8, 7, 6, 5, 4, 3 and 2 can be opened', () => {
-  assert.equal(REPORT_FORMAT_VERSION, 8);
-  assert.deepEqual([...READABLE_REPORT_VERSIONS], [8, 7, 6, 5, 4, 3, 2]);
+test('I1: the report format is 9; formats 9, 8, 7, 6, 5, 4, 3 and 2 can be opened', () => {
+  assert.equal(REPORT_FORMAT_VERSION, 9);
+  assert.deepEqual([...READABLE_REPORT_VERSIONS], [9, 8, 7, 6, 5, 4, 3, 2]);
 });
 
-test('the fixtures are what they claim to be: saved reports of formats 2, 3, 4, 5, 6 and 7', () => {
-  for (const version of [2, 3, 4, 5, 6, 7]) {
+test('the fixtures are what they claim to be: saved reports of formats 2, 3, 4, 5, 6, 7 and 8', () => {
+  for (const version of [2, 3, 4, 5, 6, 7, 8]) {
     const report = fixture(version);
     assert.equal(report.version, version);
     assert.match(report.id, /^[0-9a-f]{24}$/);
@@ -49,7 +49,7 @@ test('the fixtures are what they claim to be: saved reports of formats 2, 3, 4, 
   }
 });
 
-for (const version of [2, 3, 4, 5, 6, 7]) {
+for (const version of [2, 3, 4, 5, 6, 7, 8]) {
   test(`a saved format ${version} report opens, and what the API returns is exactly what was saved`, async () => {
     const saved = fixture(version);
     await cmd('SET', `si:report:v${version}:${saved.id}`, fixtureText(version));
@@ -133,19 +133,31 @@ test('a format 6 report is not given an identity section it never had', async ()
   assert.equal(JSON.stringify(loaded), JSON.stringify(saved));
 });
 
-test('a new report is stored under format 8 and found first; older cached reports (including 7) are not offered for a new audit', async () => {
-  for (const version of [7, 6, 5, 4, 3, 2]) {
+test('I2/I3: a new report is stored under format 9 and found first; older cached reports (including 8) are not offered for a new audit, and are not touched', async () => {
+  for (const version of [8, 7, 6, 5, 4, 3, 2]) {
     await cmd('SET', `si:report:v${version}:dddddddddddddddddddddd0${version}`, fake(`dddddddddddddddddddddd0${version}`, version));
     await cmd('SET', `si:cache:v${version}:skincare:cetaphil`, `dddddddddddddddddddddd0${version}`);
   }
   assert.equal(await findCachedReportId('skincare:cetaphil'), null, 'a repeat audit must run again under the new rules');
 
-  await saveReport({ id: 'eeeeeeeeeeeeeeeeeeeeeeee', version: 8 } as unknown as Report, 'skincare:cetaphil');
-  assert.equal(await cmd('EXISTS', 'si:report:v8:eeeeeeeeeeeeeeeeeeeeeeee'), 1);
+  await saveReport({ id: 'eeeeeeeeeeeeeeeeeeeeeeee', version: 9 } as unknown as Report, 'skincare:cetaphil');
+  assert.equal(await cmd('EXISTS', 'si:report:v9:eeeeeeeeeeeeeeeeeeeeeeee'), 1);
+  assert.equal(await cmd('EXISTS', 'si:cache:v9:skincare:cetaphil'), 1, 'the pointer is in its own format 9 namespace');
   assert.equal(await findCachedReportId('skincare:cetaphil'), 'eeeeeeeeeeeeeeeeeeeeeeee');
   assert.equal((await loadReport('eeeeeeeeeeeeeeeeeeeeeeee'))?.id, 'eeeeeeeeeeeeeeeeeeeeeeee');
-  // The older reports are still readable alongside it.
-  for (const version of [7, 6, 5, 4, 2]) {
+  // The older reports and their pointers are still there, unchanged, and still readable alongside it.
+  for (const version of [8, 7, 6, 5, 4, 3, 2]) {
     assert.equal((await loadReport(`dddddddddddddddddddddd0${version}`))?.id, `dddddddddddddddddddddd0${version}`);
+    assert.equal(await cmd('GET', `si:cache:v${version}:skincare:cetaphil`), `dddddddddddddddddddddd0${version}`, `the format ${version} pointer was not deleted or rewritten`);
+    assert.equal(await cmd('GET', `si:report:v${version}:dddddddddddddddddddddd0${version}`), fake(`dddddddddddddddddddddd0${version}`, version), `the format ${version} report was not rewritten`);
   }
+});
+
+test('H15: a saved format 8 report has no matchedContext on any set-aside entry and is returned exactly as saved', async () => {
+  const saved = fixture(8);
+  await cmd('SET', `si:report:v8:${saved.id}`, fixtureText(8));
+  const loaded = (await loadReport(saved.id)) as Report;
+  assert.equal(loaded.version, 8);
+  for (const entry of loaded.identity?.setAside ?? []) assert.equal('matchedContext' in entry, false);
+  assert.equal(JSON.stringify(loaded), JSON.stringify(saved));
 });

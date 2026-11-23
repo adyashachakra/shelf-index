@@ -2,7 +2,7 @@ import 'server-only';
 import { differentBusinessItems, mixedByReaderReason, readablePages } from '../audit/evidence-builders';
 import type { JobData, JobMeta } from '../audit/job';
 import { QUESTION_BANK_VERSION } from '../audit/questions';
-import { config, GEMINI_REQUESTS_PER_AUDIT, USER_MESSAGES } from '../config';
+import { config, GEMINI_REQUESTS_PER_AUDIT, REPORT_FORMAT_VERSION, USER_MESSAGES } from '../config';
 import { mostCommonCasing } from '../evidence/brand-match';
 import { addSetAside, brandNotRecognised, identitySection } from '../evidence/identity';
 import { clip } from '../evidence/normalize';
@@ -674,7 +674,7 @@ export function buildReport(job: JobMeta, data: JobData): Report {
   const model = reportedModel(meta, data);
 
   return {
-    version: 8,
+    version: REPORT_FORMAT_VERSION,
     id: meta.id,
     brand: meta.brand,
     brandKey: meta.brandKey,

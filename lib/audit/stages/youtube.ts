@@ -1,12 +1,12 @@
 import 'server-only';
 import { getTopComments, getVideoDetails, searchVideos, YouTubeError, type YtVideo } from '../../clients/youtube';
 import { config } from '../../config';
-import { brandAttribution, mentionsBrand } from '../../evidence/brand-match';
+import { brandAttributionOfFields, mentionsBrandInFields, triggerContext, type BrandField } from '../../evidence/brand-match';
 import { clean, clip } from '../../evidence/normalize';
 import { detectSponsorship } from '../../evidence/sponsorship';
 import { addSetAside } from '../../evidence/identity';
 import type { EvidenceItem, SetAsideEvidence } from '../../types';
-import { mixedNameReason, similarNameReason } from '../evidence-builders';
+import { mixedNameReason, similarNameSetAside } from '../evidence-builders';
 import type { StageContext } from '../context';
 import type { YouTubeData } from '../job';
 
@@ -42,14 +42,16 @@ export async function runYouTube(ctx: StageContext): Promise<'done' | 'continue'
     // also name a look-alike ("COS to COSRX"): such a video is unverified, so neither it nor its comments are used.
     const setAside: SetAsideEvidence[] = [];
     result.setAside = setAside;
-    const isClear = (v: YtVideo): boolean => {
-      const text = `${v.title} ${v.description}`;
-      return mentionsBrand(text, meta.brand) && brandAttribution(text, meta.brand).state !== 'mixed';
-    };
+    // The title and the description are judged one at a time, so the end of one never joins the start of the other.
+    const fieldsOf = (v: YtVideo): BrandField[] => [
+      { name: 'title', text: v.title },
+      { name: 'description', text: v.description },
+    ];
+    const isClear = (v: YtVideo): boolean => mentionsBrandInFields(fieldsOf(v), meta.brand) && brandAttributionOfFields(fieldsOf(v), meta.brand).state !== 'mixed';
     for (const v of found) {
       if (isClear(v)) continue;
-      const reason = similarNameReason(`${v.title} ${v.description}`, 'youtube.com', meta.brand);
-      if (reason !== null) addSetAside(setAside, { title: clip(clean(v.title), 120), url: `https://www.youtube.com/watch?v=${v.id}`, domain: 'youtube.com', reason });
+      const similar = similarNameSetAside(fieldsOf(v), 'youtube.com', meta.brand);
+      if (similar !== null) addSetAside(setAside, { title: clip(clean(v.title), 120), url: `https://www.youtube.com/watch?v=${v.id}`, domain: 'youtube.com', ...similar });
     }
     let relevant: YtVideo[] = found.filter(isClear).slice(0, MAX_VIDEOS);
 
@@ -88,9 +90,11 @@ export async function runYouTube(ctx: StageContext): Promise<'done' | 'continue'
           .filter((c) => c.text.length >= 30 && c.text.length <= 700 && !/https?:\/\//i.test(c.text))
           .filter((c) => {
             // A comment that names the brand together with a look-alike cannot be attributed to the brand.
-            const attribution = brandAttribution(c.text, meta.brand);
+            const commentFields: BrandField[] = [{ name: 'comment', text: c.text }];
+            const attribution = brandAttributionOfFields(commentFields, meta.brand);
             if (attribution.state !== 'mixed') return true;
-            addSetAside(setAside, { title: clip(`Comment on "${clean(video.title)}"`, 120), url: `${url}&lc=${encodeURIComponent(c.id)}`, domain: 'youtube.com', reason: mixedNameReason(meta.brand, attribution.lookalikes) });
+            const matched = triggerContext(commentFields, meta.brand);
+            addSetAside(setAside, { title: clip(`Comment on "${clean(video.title)}"`, 120), url: `${url}&lc=${encodeURIComponent(c.id)}`, domain: 'youtube.com', reason: mixedNameReason(meta.brand, attribution.lookalikes), ...(matched ? { matchedContext: matched } : {}) });
             return false;
           })
           .filter((c) => {

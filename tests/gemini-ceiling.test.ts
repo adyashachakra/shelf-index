@@ -152,8 +152,8 @@ test('the ceiling is 60, a code constant, and it sits above everything the exist
   assert.equal(GEMINI_AUDIT_REQUEST_CEILING, 60);
   const largestByAttemptRule = 17 * 3; // an "Other" audit asks 17 things, each at most 3 attempts
   assert.ok(GEMINI_AUDIT_REQUEST_CEILING > largestByAttemptRule, 'the ceiling must not override the 3-attempt rule');
-  assert.equal(REPORT_FORMAT_VERSION, 8, 'Stage 2 keeps report format 8');
-  assert.deepEqual([...READABLE_REPORT_VERSIONS], [8, 7, 6, 5, 4, 3, 2]);
+  assert.equal(REPORT_FORMAT_VERSION, 9, 'the evidence-quality release is report format 9');
+  assert.deepEqual([...READABLE_REPORT_VERSIONS], [9, 8, 7, 6, 5, 4, 3, 2]);
 });
 
 // ---------- 3b / 6a: a failing provider: exactly 60 requests, then a partial report ----------
@@ -175,7 +175,7 @@ test('3b/6a. 9 answers, then a 429 on every request: exactly 60 are sent, the 61
   assert.equal(ceilingLogs().length, 1, 'the ceiling is logged once');
 
   const report = (await loadReport(id)) as Report;
-  assert.equal(report.version, 8);
+  assert.equal(report.version, 9);
   assert.equal(report.methodology.geminiRequests, 60);
   const outcomes = report.methodology.geminiRequestOutcomes ?? {};
   assert.equal(outcomes.ok, 9);
@@ -346,11 +346,11 @@ test('6d. a ceiling-hit report opens by its id and is stored for 7 days, but is 
 
   const report = await loadReport(id);
   assert.ok(report, 'the visitor can open the report by its link');
-  assert.equal(report.version, 8);
+  assert.equal(report.version, 9);
   assert.equal(await findCachedReportId(input1.cacheKey), null, 'no cached report for this brand and category');
   assert.deepEqual(await shim.raw('KEYS', 'si:cache:*'), [], 'no cache pointer was written at all');
   const reportKeys = (await shim.raw('KEYS', 'si:report:*')) as string[];
-  assert.deepEqual(reportKeys, [`si:report:v8:${id}`]);
+  assert.deepEqual(reportKeys, [`si:report:v9:${id}`]);
   const ttl = Number(await shim.raw('TTL', reportKeys[0]));
   assert.ok(ttl > 6 * 24 * 3600 && ttl <= 7 * 24 * 3600, `the report keeps the same 7-day expiry (ttl ${ttl}s)`);
 
@@ -390,7 +390,7 @@ test('6e. a healthy audit is unchanged: 16 requests, no ceiling, no ceiling warn
   assert.ok(!report.methodology.unavailable.includes(USER_MESSAGES.geminiCeiling));
 
   assert.equal(await findCachedReportId(input().cacheKey), id, 'the report is cached for this brand');
-  assert.deepEqual(await shim.raw('KEYS', 'si:cache:*'), [`si:cache:v8:${input().cacheKey}`]);
+  assert.deepEqual(await shim.raw('KEYS', 'si:cache:*'), [`si:cache:v9:${input().cacheKey}`]);
   ipCounter += 1;
   const repeat = await startAudit(input(), `203.0.113.${ipCounter}`);
   assert.deepEqual(repeat.body, { status: 'cached', id });

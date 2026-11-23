@@ -364,7 +364,7 @@ test('a correctly identified COS fashion brand still proceeds to a full report, 
   const { last } = await runToEnd(id);
   assert.equal(last.status, 'complete');
   const report = (await loadReport(id)) as Report;
-  assert.equal(report.version, 8);
+  assert.equal(report.version, 9);
   assert.equal(report.identity?.status, 'recognised');
   assert.equal(report.visibility.metric.status, 'scored');
   assert.equal(report.competitors.kind, 'competitors');

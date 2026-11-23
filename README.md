@@ -113,8 +113,39 @@ recommendations, claim checks, YouTube comments or competitor sentiment, and it 
 2. **The reader's own answer.** The evidence labeller may answer `same_business: "mixed"` for any
    brand, and that answer excludes the item even when the string rule did not fire.
 
-The brand's own verified pages are not examined by this rule. Scoring formulas, quotas, caching and the
-report format (7) are unchanged; saved reports are not rewritten.
+The brand's own verified pages are not examined by this rule. Scoring formulas and quotas are unchanged;
+saved reports are not rewritten.
+
+**Evidence-quality refinements (report format 9).** A live audit of COS showed the string rule setting aside
+pages that were not about a different business, so it was tightened without removing protection against genuine
+look-alikes (`COS RX`, `COS IQ`, `cos-IQ`, `Cos De Baha`, `COSRX`, `COS to COSRX` are all still caught, for COS
+and for the other short names the tests cover):
+
+- A short capitalised word after the name is a look-alike only when it is **two or three** capital letters, is
+  **not** on a list of plain followers, and is **not** the brand's own name written again ("Image © COS" then a line
+  starting "COS designer…"). A one-letter follower ("COS A/W", "I think COS I love") is never a look-alike.
+- The plain-followers list is 81 words: the earlier 51 (`and`, `the`, `uk`, `usa`…) plus season and collection
+  codes (`aw ss fw pf cr`), country and region codes (`es jp ie ch dk se nl sg hk be pt pl mx br ae za kr cn`),
+  `men`, `hq` and size or product codes (`xs xl xxl spf uv`). `de` and `id` are deliberately **not** on it.
+- The title and the snippet (or a video's title and description) are each examined **on their own**, so the last
+  word of one never joins the first word of the next. A look-alike in one field and the brand alone in another is
+  still mixed.
+- **Matched context.** A "Found but not counted" entry that was set aside because of a look-alike also records the
+  exact occurrence that fired (not the brand's first mention): up to 160 characters of the original text with its
+  capitals and accents, the span to highlight, the field it came from (`title`, `snippet`, `description`,
+  `comment`) and which of five signals fired (a short capitalised word after the name, a name particle, a hyphen
+  after the name, a hyphen before it, letters written straight on). The report page shows it under the reason as
+  "Text that triggered this", with the triggering part highlighted. Entries set aside by the reader's "mixed"
+  answer, by a different business or by a web address that resembles the name carry none. Older reports have no
+  such field and show exactly as before.
+- **Durability** ("How long do they last?", "Which brands last the longest?") is a claim kind of its own. A
+  brand's own sentence about it is its claim, so a clear answer from the brand's page is shown as "Touched on,
+  brand claim". Questions are judged clause by clause: a clause that only asks for a policy the brand controls
+  (a warranty, a return window, "does the brand offer repairs") stays a question of fact and never cancels a
+  separate clause that asks about durability. "Does the brand offer a repair service?" is a fact; "Which
+  moisturisers repair the skin barrier?" remains an effectiveness claim.
+- Scores are not recalculated by a new formula; the content gap score can still be higher for a durability
+  question answered only by the brand's own page (such an item counts as touched on, not clear).
 
 ---
 
@@ -489,6 +520,7 @@ These three corrections pass the simulated tests. Their own live run is the next
 | Patch 6: the brand-claim rule for the effectiveness, suitability, clinical and expert cases, questions of fact unaffected, earlier rules unchanged, scoring formula unchanged, no network in the rule | 15 tests (8 of them fail if the rule is switched off) | Real code, no services needed |
 | Brand identity: COS against COSRX, Cos De Baha, cos-IQ and cosgramusa.com; the original COS/Skincare failure replayed; stop, refund and no-resume behaviour; recognised and unrecognised-with-domain paths; genuine zero versus non-recognition; confidence; competitor labelling; unrelated evidence kept out of recommendations; form confirmation rules | 22 tests (the key ones fail if the rules are removed) | Real Redis; Gemini, Tavily and YouTube **simulated**, with invented reconstructions of the failing pages |
 | Mixed-brand evidence: the real Lemon8 title and 139-character excerpt, "COS to COSRX" and other mixed titles, ordinary COS pages and ordinary words ("cost") unaffected, longer names unaffected, the reader's "mixed" answer, YouTube videos and comments, competitor sentiment, one-item-moved control runs with scores unchanged | 15 tests (each of the five rules fails a test when switched off) | Real Redis; Gemini, Tavily and YouTube **simulated**; the Lemon8 text is copied from the saved COS report |
+| Evidence-quality rules (format 9): look-alikes caught and ordinary text clear across 12 short brands and 3 longer controls, wording modelled on the COS audit, title and snippet judged separately, matched context (offsets, accents, ligatures, long text), the durability claim kind with the clause-level policy guard, format 9 cache keys, pipeline and UI checks | about 500 tests | Real code and real Redis; Gemini, Tavily and YouTube **simulated**; all text invented |
 | Saved reports across format changes: real format 2, 3, 4, 5 and 6 reports open and the API returns exactly what was saved; nothing missing is invented; format 1 is not read; old cached reports are not reused | 10 tests | Real Redis, real route handler |
 | TypeScript, engine and API routes | Strict compile, zero errors | Real compiler |
 | TypeScript, pages and components | Strict compile with stand-in typings for React, Next.js and Recharts | Partial locally; the real check is the Vercel build |
@@ -561,6 +593,21 @@ To run the tests yourself (optional, needs Node.js and a local Redis server on p
 - An audit stopped for identity still keeps its daily and visitor slot when the one website-check search
   was paid for. That is the existing quota policy, not a new rule.
 - Reports saved before format 7 open as they were saved and say they predate the identity check.
+- **Report format 9.** New reports are saved as format 9 under their own cache keys (`si:report:v9:`, `si:cache:v9:`), so
+  a repeat audit after these rules run again instead of being handed a format 8 report. Format 8 and earlier
+  reports are not migrated, rewritten or deleted; they open as saved until they expire. Preview and Production
+  share one Redis, so the first request for a brand on a format 9 Preview spends a fresh audit.
+- **Known limits of the format 9 rules.** A real different business whose name is exactly an allow-listed code
+  ("COS SS") is no longer caught; a genuine one-letter name ("COS X") is no longer caught; sub-brand lines such
+  as "Nike SB" or "Zara TRF" are still treated as look-alikes (not on the list); "COS DE <word>" and "COS ID" are
+  still flagged (`de` and `id` stay off the list, and the name-particle rule runs first). A short name written with a final dot ("e.l.f.") is not examined for spaced or hyphenated look-alikes, only for run-together forms such as "ELFRX"; this is how it behaved before, and a test pins it so any future change shows up. Durability is judged by a
+  word list over the question: "How long does the event last?" is read as durability (a note on a fact, not a
+  wrong score), "Do the zippers break easily?" is not recognised, and one clause that is both a policy question and
+  a durability question ("What is the warranty on durability?") is read as the policy. Compound questions are
+  split at commas and at "and, but, plus, also, while, though". A repair question about a
+  product ("Does retinol repair the skin?") stays an effectiveness claim only because a lower-case product word is
+  not taken for a brand name; a single capitalised word ("Does Retinol repair…") would be read as a brand acting
+  on a policy.
 - Usage is small by design: a couple of new audits a day. This is a portfolio tool on free quotas.
 
 ## Roadmap (not in V1)

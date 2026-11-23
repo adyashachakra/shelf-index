@@ -1,5 +1,5 @@
 import 'server-only';
-import { domainBelongsToBrand, mentionsBrand } from '../../evidence/brand-match';
+import { domainBelongsToBrand, mentionsBrand, mentionsBrandInFields } from '../../evidence/brand-match';
 import { cleanDomain, isSocialDomain } from '../../evidence/normalize';
 import { verifiedPriceTier } from '../../evidence/price';
 import { quoteAppearsIn } from '../../evidence/quotes';
@@ -69,7 +69,15 @@ export async function runWebsite(ctx: StageContext): Promise<'done' | 'continue'
       const looksRight =
         pages.length > 0 &&
         (domainBelongsToBrand(candidate, meta.brand) ||
-          (data.profile?.recognized === true && pages.some((p) => mentionsBrand(`${p.title} ${p.text}`, meta.brand))));
+          (data.profile?.recognized === true && pages.some((p) =>
+            mentionsBrandInFields(
+              [
+                { name: 'title', text: p.title },
+                { name: 'page text', text: p.text },
+              ],
+              meta.brand,
+            ),
+          )));
       outcome.entry.kept = looksRight ? pages.length : 0;
       if (looksRight) {
         site.domain = candidate;

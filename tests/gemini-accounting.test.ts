@@ -171,7 +171,7 @@ test('1. a healthy normal audit: the Redis counter, the day counter and the repo
   assert.equal(await geminiRequestsForAudit(id), state.generateCalls);
   assert.equal(await geminiRequestsToday(), state.generateCalls);
   const report = (await loadReport(id)) as Report;
-  assert.equal(report.version, 8);
+  assert.equal(report.version, 9);
   assert.equal(report.methodology.geminiRequests, state.generateCalls);
   assert.deepEqual(report.methodology.geminiRequestOutcomes, { ok: 16 });
   const meta = await loadMeta(id);
@@ -497,15 +497,15 @@ test('9. one Redis command per approval (grant or refusal), and a clean audit st
   };
 });
 
-// ---------- 10. report format 8 ----------
+// ---------- 10. report format 9 ----------
 
-test('10. a new report is saved under format 8 and cached under format 8; nothing is written under format 7', async () => {
+test('10. a new report is saved under format 9 and cached under format 9; nothing is written under format 8', async () => {
   const id = await begin();
   await runToEnd(id);
-  assert.equal(await shim.raw('EXISTS', `si:report:v8:${id}`), 1);
-  assert.equal(((await shim.raw('KEYS', 'si:cache:v8:*')) as string[]).length, 1);
-  assert.equal(((await shim.raw('KEYS', 'si:report:v7:*')) as string[]).length, 0);
-  assert.equal(((await shim.raw('KEYS', 'si:cache:v7:*')) as string[]).length, 0);
+  assert.equal(await shim.raw('EXISTS', `si:report:v9:${id}`), 1);
+  assert.equal(((await shim.raw('KEYS', 'si:cache:v9:*')) as string[]).length, 1);
+  assert.equal(((await shim.raw('KEYS', 'si:report:v8:*')) as string[]).length, 0);
+  assert.equal(((await shim.raw('KEYS', 'si:cache:v8:*')) as string[]).length, 0);
 });
 
 // ---------- 11. the audit store (Redis/Upstash) fails: fail closed ----------

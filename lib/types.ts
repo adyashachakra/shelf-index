@@ -545,12 +545,28 @@ export type OverallConfidence =
  */
 export type IdentityStatus = 'recognised' | 'domain_verified' | 'unchecked';
 
+/**
+ * The short stretch of text around the look-alike name that made an item "mixed", so a reader can see why it was set
+ * aside. `text` is at most 160 characters in the original capitalisation and accents; `markFrom`/`markTo` index it.
+ * Report format 9 onwards; older reports have none, and the page shows nothing extra for them.
+ */
+export interface MatchedContext {
+  text: string;
+  markFrom: number;
+  markTo: number;
+  field: 'title' | 'snippet' | 'description' | 'page text' | 'comment';
+  /** Which look-alike signal fired: a short capitalised word after the name, a name particle, a hyphen after or before, letters written straight on. */
+  rule: 'follower' | 'particle' | 'joined' | 'prefix' | 'run-together';
+}
+
 /** Evidence the audit found but did not use, kept so the person can see what was set aside and why. */
 export interface SetAsideEvidence {
   title: string;
   url: string;
   domain: string;
   reason: string;
+  /** Only for an item set aside because of a look-alike name found in its text (format 9 onwards). */
+  matchedContext?: MatchedContext;
 }
 
 export interface IdentityData {
@@ -577,7 +593,7 @@ export interface IdentitySection {
 
 export interface Report {
   /** 8 for new reports. Older reports are still read: every field added since is optional. */
-  version: 2 | 3 | 4 | 5 | 6 | 7 | 8;
+  version: 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9;
   id: string;
   /** True only for the bundled example with a fictional brand. */
   illustrative?: boolean;
