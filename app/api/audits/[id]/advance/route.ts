@@ -1,5 +1,6 @@
 import { advanceJob } from '@/lib/audit/pipeline';
 import { StorageSignal } from '@/lib/audit/context';
+import { KeyNamespaceError } from '@/lib/cache/keys';
 import { USER_MESSAGES } from '@/lib/config';
 import { logEvent, safeErrorMessage } from '@/lib/log';
 import { isValidAuditId } from '@/lib/validation/input';
@@ -27,6 +28,10 @@ export async function POST(_request: Request, context: { params: Promise<{ id: s
       logEvent('advance_storage_error', { reason: err.reason });
       const error = err.reason === 'quota' ? USER_MESSAGES.storageQuota : USER_MESSAGES.storage;
       return Response.json({ error, kind: 'storage', reason: err.reason }, { status: 503, headers: NO_STORE });
+    }
+    if (err instanceof KeyNamespaceError) {
+      logEvent('advance_blocked_setup', { missing: 'SI_KEY_NAMESPACE (invalid)' });
+      return Response.json({ error: USER_MESSAGES.keyNamespace, kind: 'setup' }, { status: 503, headers: NO_STORE });
     }
     logEvent('advance_error', { error: safeErrorMessage(err) });
     return Response.json({ error: 'The audit store is not reachable right now.' }, { status: 503, headers: NO_STORE });

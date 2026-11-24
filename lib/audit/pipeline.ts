@@ -1,4 +1,5 @@
 import 'server-only';
+import { keyNamespaceProblem } from '../cache/keys';
 import {
   acquireJobLock,
   claimInflight,
@@ -79,6 +80,12 @@ export async function startAudit(input: AuditInput, visitorIp: string): Promise<
   if (missing.length > 0) {
     logEvent('start_blocked_setup', { missing: missing.join(',') });
     return startError(503, 'setup', USER_MESSAGES.setup);
+  }
+  // An invalid SI_KEY_NAMESPACE must stop everything: falling back to the shared keys would put a Preview's audits
+  // into Production's data. (Every key builder also refuses it, so nothing below could run anyway.)
+  if (keyNamespaceProblem()) {
+    logEvent('start_blocked_setup', { missing: 'SI_KEY_NAMESPACE (invalid)' });
+    return startError(503, 'setup', USER_MESSAGES.keyNamespace);
   }
 
   const cached = await findCachedReportId(input.cacheKey);

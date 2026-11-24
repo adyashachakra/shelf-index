@@ -1,4 +1,5 @@
 import 'server-only';
+import { sharedKeys } from '../cache/keys';
 import { cmd, getString } from '../clients/redis';
 import { GeminiError, generateJson, type GenerateRequest, type GenerateResult, type RequestGate } from '../clients/gemini';
 import { TavilyError, tavilySearch, type TavilyResult, type TavilySearchParams } from '../clients/tavily';
@@ -120,8 +121,9 @@ function makeGate(meta: JobMeta, stepKey: string): RequestGate {
   };
 }
 
+/** Shared by every environment: Preview and Production spend the same Tavily account (lib/cache/keys.ts). */
 function tavilyExhaustedKey(now: Date = new Date()): string {
-  return `si:tavily:exhausted:${monthKey(config.quotaTimezone(), now)}`;
+  return sharedKeys.tavilyExhausted(monthKey(config.quotaTimezone(), now));
 }
 export async function markTavilyExhausted(): Promise<void> {
   await cmd('SET', tavilyExhaustedKey(), '1', 'EX', 35 * 24 * 60 * 60);

@@ -385,6 +385,42 @@ Set these in Vercel (Project > Settings > Environment Variables). Never put valu
 | `TAVILY_MONTHLY_CREDIT_CEILING` | optional | Default 800 |
 | `CACHE_DAYS` | optional | Default 7 |
 | `QUOTA_TIMEZONE` | optional | Default `America/Los_Angeles` (when Google's daily quotas reset) |
+| `SI_KEY_NAMESPACE` | **Preview: set it. Production: leave it unset** | Keeps a Preview's audit state apart from Production's in the shared database. Recommended value on Vercel **Preview**: `preview`. See below |
+
+### Preview and Production in one database (`SI_KEY_NAMESPACE`)
+
+Preview and Production normally use the same Upstash database. `SI_KEY_NAMESPACE` decides which of its keys a
+deployment uses for **audit state**: saved reports, the brand-and-category cache pointers, audits in progress and
+their locks, the per-brand "audit already running" lock, cached custom-category questions, search-credit
+reservations (and the sweep of abandoned ones), and the daily and per-visitor audit slots.
+
+| Environment | Setting | Effect |
+|---|---|---|
+| Vercel **Preview** | `SI_KEY_NAMESPACE=preview` (recommended value) | Audit state is stored under `si:preview:…`. A Preview test audit is never served to the live site, never joins or resumes a live audit, and does not use the live site's daily audit slots (Preview's daily and per-visitor audits are counted separately, against the Preview's own `DAILY_SCAN_LIMIT` and `PER_VISITOR_DAILY_LIMIT`) |
+| Vercel **Production** | **leave it unset** | Audit state keeps exactly the key names the site has always used, so nothing moves. **Any non-empty value on Production is rejected**: audits cannot start, reports cannot be opened and no audit state is read or written until it is removed (the page says the storage setting is not valid; the value itself is never shown) |
+| Local development | unset, or any valid namespace | Unset: the shared key names. Set: that namespace. Production's rule applies only when `VERCEL_ENV=production` |
+
+A valid namespace is 1 to 24 lower-case letters, digits or hyphens, starting with a letter, and not a word the app
+already uses in its key names (such as `report`, `cache`, `job`, `gemini` or `tavily`). An invalid value is treated the
+same way as a Production misconfiguration: the deployment refuses to read or write audit state rather than falling back
+to the shared keys.
+
+What stays shared on purpose:
+
+- **Gemini and Tavily quota counters** (requests today and this minute, the rate-limit cooldown, Tavily credits this
+  month, the "quota used up" flags) are never namespaced. Both environments use the same API keys, so they really do
+  share Google's per-minute and daily allowance and Tavily's monthly credits; a Preview audit counts against them and
+  can be refused, or slowed, because of what the live site has used, and the other way round.
+- **The database itself**: Preview traffic counts against the same Upstash free allowance (commands and storage).
+
+Older report links on a Preview: a Preview with a namespace can still **open** a report saved before the namespace
+was set (or saved by Production) when given its id. This is a read-only fallback for the report itself. It never
+uses another environment's cache pointer, never reads or resumes another environment's audit, and never writes. The
+live site (no namespace) has no such fallback and never reads a Preview report.
+
+`/api/health` shows the setting under `keyNamespace`: the namespace in use, `none` (shared key names), or `invalid`
+(with the reason, never the value). On a Preview deployment without a namespace it adds a warning note. These rules
+are covered by automated tests against a local Redis; they have not yet been exercised on a real Vercel deployment.
 
 Step-by-step deployment for a first-timer is in [DEPLOY.md](./DEPLOY.md).
 

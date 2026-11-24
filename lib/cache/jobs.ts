@@ -2,6 +2,7 @@ import 'server-only';
 import { cmd, del, getString, hgetall, hset, setIfAbsent } from '../clients/redis';
 import { INFLIGHT_TTL_SECONDS, JOB_TTL_SECONDS } from '../config';
 import type { JobData, JobMeta, SectionName } from '../audit/job';
+import { envKeys } from './keys';
 
 // Audit state lives in one Redis hash per audit: a small "meta" field plus one field per
 // finished step. Steps are written once, so a retry or refresh never repeats paid work.
@@ -22,14 +23,16 @@ const SECTIONS: SectionName[] = [
   'synthesis',
 ];
 
+// All three are environment-scoped (lib/cache/keys.ts): an audit, its lock and the per-brand in-flight lock never
+// cross between Preview and Production.
 function jobKey(id: string): string {
-  return `si:job:${id}`;
+  return envKeys.job(id);
 }
 function lockKey(id: string): string {
-  return `si:lock:${id}`;
+  return envKeys.lock(id);
 }
 function inflightKey(cacheKey: string): string {
-  return `si:inflight:${cacheKey}`;
+  return envKeys.inflight(cacheKey);
 }
 
 export function newAuditId(): string {

@@ -96,6 +96,14 @@ export const config = {
   tavilyMonthlyCeiling: () => intOr('TAVILY_MONTHLY_CREDIT_CEILING', 800, 0, 100_000),
   cacheDays: () => intOr('CACHE_DAYS', 7, 1, 30),
   quotaTimezone: () => (process.env.QUOTA_TIMEZONE ?? '').trim() || 'America/Los_Angeles',
+  /**
+   * SI_KEY_NAMESPACE, trimmed, or null when unset or empty. Set it on Preview only (for example "preview") so
+   * Preview's audit state lives apart from Production's in the shared database; leave it unset on Production.
+   * Validated in lib/cache/keys.ts; an invalid value stops the app from reading or writing audit state.
+   */
+  keyNamespace: (): string | null => (process.env.SI_KEY_NAMESPACE ?? '').trim() || null,
+  /** Vercel's own environment name ("production", "preview", "development"), or "" outside Vercel. */
+  vercelEnvironment: () => (process.env.VERCEL_ENV ?? '').trim(),
 };
 
 export function missingRequiredEnv(): string[] {
@@ -118,6 +126,8 @@ export const USER_MESSAGES = {
   geminiDaily:
     "Gemini's free daily quota is used up. New audits reopen after it resets (midnight Pacific time).",
   setup: 'This site is not fully set up yet. The owner needs to finish adding its configuration.',
+  /** SI_KEY_NAMESPACE is set to an unusable value: nothing is read or written until it is fixed. */
+  keyNamespace: 'This site\'s storage setting (SI_KEY_NAMESPACE) is not valid for this deployment, so audits and reports are unavailable until the owner fixes it.',
   storage: 'The audit store is not reachable right now. Please try again in a minute.',
   storageQuota:
     "The audit store's free usage limit has been reached for now, so nothing could be started or continued. No Gemini request was made. Please try again later.",

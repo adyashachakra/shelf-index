@@ -124,6 +124,7 @@ shows a key, so it is safe to copy and send to Claude.
 | `redis` not ok | The Upstash URL or token is incomplete or swapped |
 | `gemini` says the model was not found | Tell Claude which models your AI Studio page lists |
 | `gemini` says the key was rejected | The Gemini key was pasted with a mistake |
+| `keyNamespace` not ok | `SI_KEY_NAMESPACE` is set on Production (it must not be), or is not a valid namespace. Remove it from Production; on a Preview use `preview` |
 
 ## Step 7. Run the first real audit
 
@@ -173,10 +174,23 @@ nothing: Preview deployments are part of Vercel's free plan.
   Preview. To run audits on a Preview, add the same variables again with the environment
   **Preview** (Settings > Environment Variables > Add Environment Variable). You type the keys
   yourself, as before. The Production entries stay exactly as they are.
-- Given the same Upstash values, the Preview and the live site share one database. That is
-  intended: the daily audit limit and the monthly search credits stay shared, so testing can
-  never spend more than the caps allow. Saved reports from different report formats are kept
-  apart, so a test never overwrites a report the live site has saved.
+- Given the same Upstash values, the Preview and the live site share one database. To keep a
+  Preview's audits apart from the live site's, add one more variable for the environment
+  **Preview only**: `SI_KEY_NAMESPACE` with the value `preview`. **Never add it to Production.**
+  On Production it must stay unset; if it is set there, with any value, the live site refuses
+  to start audits or open reports until it is removed.
+- With `SI_KEY_NAMESPACE=preview`, a Preview keeps its own saved reports, its own cache of
+  repeat audits, its own audits in progress, and counts its daily and per-visitor audits separately
+  (against the Preview's own `DAILY_SCAN_LIMIT` and `PER_VISITOR_DAILY_LIMIT`).
+  A test audit is never shown to visitors of the live site and never uses their daily slots.
+  The Gemini and Tavily allowances stay shared on purpose, because both use the same keys:
+  Gemini's daily and per-minute limits and the monthly search credits count what both have
+  used, so testing still cannot spend more than the caps allow.
+- A Preview can still open an older report by its link (read only), but it never reuses the
+  live site's cached results and never joins an audit running there.
+- Without the variable, a Preview shares everything with the live site, as before, and its
+  `/api/health` shows a warning. Check `/api/health` on the Preview after adding it: under
+  `keyNamespace` it should show `"value": "preview"`.
 
 **Steps**
 
@@ -190,7 +204,8 @@ nothing: Preview deployments are part of Vercel's free plan.
    before clicking **Commit changes** read the line above the button. It must say
    **Commit directly to the `BRANCH-NAME` branch**. If it says `main`, stop and leave the page.
 4. **Open the Preview.** In Vercel > Deployments the new build is labelled **Preview** with
-   your branch name. Open it, check `/api/health`, then test.
+   your branch name. Open it, check `/api/health` (no warning about `SI_KEY_NAMESPACE`, and
+   `"ok": true`), then test.
 5. **Release only when you are satisfied.** On GitHub open a pull request from the working
    branch into `main` and merge it. Vercel then rebuilds the live site from `main`.
 

@@ -1,4 +1,5 @@
 import 'server-only';
+import { envKeys } from '../../cache/keys';
 import { getJson, setJson } from '../../clients/redis';
 import { QUESTIONS_PER_AUDIT } from '../../config';
 import { brandKey, mentionsBrand } from '../../evidence/brand-match';
@@ -16,7 +17,7 @@ export async function runQuestions(ctx: StageContext): Promise<'done' | 'continu
   if (meta.categoryId !== 'other') {
     questions = QUESTION_BANK[meta.categoryId];
   } else {
-    const cacheKey = `si:questions:${QUESTION_BANK_VERSION}:${brandKey(meta.categoryLabel)}`;
+    const cacheKey = envKeys.questions(QUESTION_BANK_VERSION, brandKey(meta.categoryLabel));
     const cached = await getJson<CategoryQuestion[]>(cacheKey);
     if (cached && cached.length >= 6) {
       questions = cached;

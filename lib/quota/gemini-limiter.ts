@@ -1,5 +1,6 @@
 import 'server-only';
 import { cmd, evalScript, getString, RedisError } from '../clients/redis';
+import { sharedKeys } from '../cache/keys';
 import { config, GEMINI_RPM_HEADROOM } from '../config';
 import { dayKey } from './dates';
 import { GEMINI_SLOT_SCRIPT } from './scripts';
@@ -9,13 +10,15 @@ import { GEMINI_SLOT_SCRIPT } from './scripts';
 // when they are not set, requests go out one at a time and the app only obeys the wait
 // times that Gemini itself returns (the cooldown below).
 
-const COOLDOWN_KEY = 'si:gemini:cooldown';
+// These counters are SHARED by Preview and Production and never namespaced: both use the same Gemini key, so they
+// share Google's per-minute and per-day allowance (lib/cache/keys.ts explains why).
+const COOLDOWN_KEY = sharedKeys.geminiCooldown();
 
 function dailyCounterKey(now: Date): string {
-  return `si:gemini:day:${dayKey(config.quotaTimezone(), now)}`;
+  return sharedKeys.geminiDay(dayKey(config.quotaTimezone(), now));
 }
 function exhaustedKey(now: Date): string {
-  return `si:gemini:exhausted:${dayKey(config.quotaTimezone(), now)}`;
+  return sharedKeys.geminiExhausted(dayKey(config.quotaTimezone(), now));
 }
 
 export type SlotResult =
@@ -34,7 +37,7 @@ export type SlotResult =
 const AUDIT_COUNTER_TTL_SECONDS = 97_200;
 
 export function auditCounterKey(auditId: string): string {
-  return `si:gemini:audit:${auditId}`;
+  return sharedKeys.geminiAudit(auditId);
 }
 
 /** The store's own wording when its monthly or daily free request limit is used up (Upstash documents these). */
@@ -61,8 +64,8 @@ export async function acquireGeminiSlot(auditId: string, ceiling: number, now: D
     reply = await evalScript(
       GEMINI_SLOT_SCRIPT,
       [
-        `si:gemini:min:${minute}`,
-        `si:gemini:min:${minute - 1}`,
+        sharedKeys.geminiMinute(minute),
+        sharedKeys.geminiMinute(minute - 1),
         dailyCounterKey(now),
         auditCounterKey(auditId),
         COOLDOWN_KEY,

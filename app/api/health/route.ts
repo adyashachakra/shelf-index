@@ -1,5 +1,6 @@
 import { checkGeminiModel } from '@/lib/clients/gemini';
 import { cmd, evalScript, redisConfigured } from '@/lib/clients/redis';
+import { keyNamespaceProblem } from '@/lib/cache/keys';
 import { config } from '@/lib/config';
 import { safeErrorMessage } from '@/lib/log';
 import { geminiRequestsToday } from '@/lib/quota/gemini-limiter';
@@ -39,6 +40,16 @@ async function runChecks(): Promise<Record<string, unknown>> {
     UPSTASH_REDIS: redisConfigured() ? 'set' : 'missing',
   };
 
+  // Which audit-state namespace this deployment uses. The value itself is not secret (it is a short label such as
+  // "preview"); an invalid value is reported without echoing it.
+  const namespaceProblem = keyNamespaceProblem();
+  const namespaceValue = config.keyNamespace();
+  const keyNamespace: Check & { value: string } = namespaceProblem
+    ? { ok: false, value: 'invalid', detail: namespaceProblem }
+    : namespaceValue
+      ? { ok: true, value: namespaceValue, detail: 'Audit state is kept apart from other environments; Gemini and Tavily counters are shared.' }
+      : { ok: true, value: 'none', detail: 'Audit state uses the shared key names (correct for Production).' };
+
   let redis: Check = { ok: false, detail: 'UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN are not set' };
   let atomicScripts: Check = { ok: false, detail: 'Not checked' };
   let quota: Record<string, number> | null = null;
@@ -58,6 +69,7 @@ async function runChecks(): Promise<Record<string, unknown>> {
         atomicScripts = { ok: false, detail: safeErrorMessage(err) };
       }
       try {
+        if (namespaceProblem) throw new Error('key namespace invalid');
         const snapshot = await quotaSnapshot();
         quota = {
           newAuditsToday: snapshot.scansToday,
@@ -82,13 +94,21 @@ async function runChecks(): Promise<Record<string, unknown>> {
     );
   }
   if (environment.YOUTUBE_API_KEY !== 'set') notes.push('Without YOUTUBE_API_KEY, audits run without YouTube comments.');
+  if (namespaceProblem) notes.push(`${namespaceProblem} Audits and reports are unavailable until it is fixed.`);
+  else if (!namespaceValue && config.vercelEnvironment() === 'preview') {
+    notes.push(
+      'WARNING: this is a Preview deployment but SI_KEY_NAMESPACE is not set, so its audits, cached reports and daily slots are shared with Production. Set SI_KEY_NAMESPACE (for example "preview") for the Preview environment.',
+    );
+  }
 
-  const ok = environment.GEMINI_API_KEY === 'set' && environment.TAVILY_API_KEY === 'set' && redis.ok && atomicScripts.ok && gemini.ok;
+  const ok =
+    environment.GEMINI_API_KEY === 'set' && environment.TAVILY_API_KEY === 'set' && redis.ok && atomicScripts.ok && gemini.ok && keyNamespace.ok;
 
   return {
     ok,
     checkedAt: new Date().toISOString(),
     environment,
+    keyNamespace,
     redis,
     atomicScripts,
     gemini: { ...gemini, model: config.geminiModel() },

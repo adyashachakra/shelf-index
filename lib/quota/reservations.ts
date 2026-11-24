@@ -2,6 +2,7 @@ import 'server-only';
 import { cmd, evalScript, getNumber, hgetall } from '../clients/redis';
 import { config, RESERVATION_MAX_AGE_MS, TIER_CREDITS, TIER_ORDER } from '../config';
 import { logEvent, safeErrorMessage } from '../log';
+import { envKeys, sharedKeys } from '../cache/keys';
 import type { Tier } from '../types';
 import { dayKey, daysLeftInMonth, monthKey } from './dates';
 import {
@@ -12,7 +13,9 @@ import {
   UNSPEND_SCRIPT,
 } from './scripts';
 
-const ACTIVE_ZSET = 'si:resv-active';
+// The reservation, the sweep list and the daily and per-visitor audit slots are environment-scoped; the Tavily
+// month counter is shared, because Preview and Production spend the same Tavily account (lib/cache/keys.ts).
+const activeSet = (): string => envKeys.reservationsActive();
 const DAY_TTL_SECONDS = 3 * 24 * 60 * 60;
 const MONTH_TTL_SECONDS = 70 * 24 * 60 * 60;
 const RESERVATION_TTL_SECONDS = 45 * 24 * 60 * 60;
@@ -25,16 +28,16 @@ export interface ReservationKeys {
 }
 
 export function reservationKey(jobId: string): string {
-  return `si:resv:${jobId}`;
+  return envKeys.reservation(jobId);
 }
 
 export function currentQuotaKeys(visitorHash: string, jobId: string, now: Date = new Date()): ReservationKeys {
   const tz = config.quotaTimezone();
   const day = dayKey(tz, now);
   return {
-    day: `si:day:${day}`,
-    visitor: `si:visitor:${day}:${visitorHash}`,
-    month: `si:tavily:${monthKey(tz, now)}`,
+    day: envKeys.auditDay(day),
+    visitor: envKeys.visitor(day, visitorHash),
+    month: sharedKeys.tavilyMonth(monthKey(tz, now)),
     resv: reservationKey(jobId),
   };
 }
@@ -65,7 +68,7 @@ export async function reserveAudit(jobId: string, visitorHash: string, now: Date
   const tiers = allowedTiers(used, now);
   const result = await evalScript<[number, string, number, number]>(
     RESERVE_SCRIPT,
-    [keys.day, keys.visitor, keys.month, keys.resv, ACTIVE_ZSET],
+    [keys.day, keys.visitor, keys.month, keys.resv, activeSet()],
     [
       config.dailyScanLimit(),
       config.perVisitorDailyLimit(),
@@ -120,7 +123,7 @@ export async function settleReservation(
 ): Promise<SettleResult> {
   const result = await evalScript<[number, number, number]>(
     SETTLE_SCRIPT,
-    [keys.resv, keys.month, keys.day, keys.visitor, ACTIVE_ZSET],
+    [keys.resv, keys.month, keys.day, keys.visitor, activeSet()],
     [refundSlotsIfUnspent ? '1' : '0', jobId],
   );
   return {
@@ -148,11 +151,11 @@ export async function sweepStaleReservations(now: Date = new Date()): Promise<nu
   let swept = 0;
   try {
     const cutoff = now.getTime() - RESERVATION_MAX_AGE_MS;
-    const stale = await cmd<string[]>('ZRANGEBYSCORE', ACTIVE_ZSET, '-inf', cutoff, 'LIMIT', 0, 10);
+    const stale = await cmd<string[]>('ZRANGEBYSCORE', activeSet(), '-inf', cutoff, 'LIMIT', 0, 10);
     for (const jobId of stale ?? []) {
       const fields = await hgetall(reservationKey(jobId));
       if (!fields.k_month || !fields.k_day || !fields.k_visitor) {
-        await cmd('ZREM', ACTIVE_ZSET, jobId);
+        await cmd('ZREM', activeSet(), jobId);
         continue;
       }
       await settleReservation(
@@ -178,8 +181,8 @@ export interface QuotaSnapshot {
 export async function quotaSnapshot(now: Date = new Date()): Promise<QuotaSnapshot> {
   const tz = config.quotaTimezone();
   const [scansToday, creditsThisMonth] = await Promise.all([
-    getNumber(`si:day:${dayKey(tz, now)}`),
-    getNumber(`si:tavily:${monthKey(tz, now)}`),
+    getNumber(envKeys.auditDay(dayKey(tz, now))),
+    getNumber(sharedKeys.tavilyMonth(monthKey(tz, now))),
   ]);
   return {
     scansToday,
