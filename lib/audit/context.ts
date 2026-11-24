@@ -72,6 +72,12 @@ class CeilingSignal extends Error {
   }
 }
 
+/** Record that a Gemini step ended without a usable answer (all attempts used, or the answer was blocked). */
+function recordStepFailure(meta: JobMeta, stepKey: string): void {
+  const failed = (meta.geminiStepsFailed ??= []);
+  if (!failed.includes(stepKey)) failed.push(stepKey);
+}
+
 /** Record, once, that this audit was refused further Gemini requests. Nothing is sent after this. */
 function reachCeiling(meta: JobMeta, stepKey: string, requests: number): void {
   if (meta.geminiCeilingReached) return;
@@ -174,7 +180,10 @@ export function createContext(meta: JobMeta, data: JobData, deadline: number): S
 
     async gemini(options, stepKey) {
       const attempts = meta.attempts[stepKey] ?? 0;
-      if (attempts >= MAX_STEP_ATTEMPTS) return null;
+      if (attempts >= MAX_STEP_ATTEMPTS) {
+        recordStepFailure(meta, stepKey);
+        return null;
+      }
       // Once this audit has sent its limit, no further Gemini request is made: not even a Redis call to ask.
       // (meta.geminiRequests only ever mirrors the Redis audit counter, so it is never ahead of it; if it is
       // behind, the gate below is the authority.)
@@ -209,11 +218,15 @@ export function createContext(meta: JobMeta, data: JobData, deadline: number): S
             throw new StopSignal('setup', `${USER_MESSAGES.setup} (Gemini: ${err.message}.)`);
           case 'blocked':
             meta.attempts[stepKey] = MAX_STEP_ATTEMPTS;
+            recordStepFailure(meta, stepKey);
             return null;
           default: {
             // unavailable, timeout, network, invalid_output: retry on the next call, up to the limit
             meta.attempts[stepKey] = attempts + 1;
-            if (attempts + 1 >= MAX_STEP_ATTEMPTS) return null;
+            if (attempts + 1 >= MAX_STEP_ATTEMPTS) {
+              recordStepFailure(meta, stepKey);
+              return null;
+            }
             throw new WaitSignal(err.kind === 'unavailable' ? 8 : 2, 'Retrying a Gemini request');
           }
         }

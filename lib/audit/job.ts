@@ -108,6 +108,12 @@ export interface JobMeta {
    * The report says so, and a report from such an audit is not saved as the cached result for its brand.
    */
   geminiCeilingReached?: boolean;
+  /**
+   * Gemini steps that gave no usable answer after all their attempts (or whose answer was blocked), in the order they
+   * failed. Recorded so the finished report can be kept out of the brand cache when a measurement is missing because
+   * of a failure rather than a lack of evidence. Not shown in the report.
+   */
+  geminiStepsFailed?: string[];
   creditsSpent: number;
   searches: SearchLogEntry[];
   error?: string;
