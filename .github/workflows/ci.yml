@@ -1,0 +1,180 @@
+# Shelf Index continuous integration.
+# Verifies every change on Node 26 (from .nvmrc) before it can reach Production.
+# Gemini, Tavily and YouTube are simulated by the test suite; this workflow uses no secrets
+# and makes no request to any provider.
+
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main, 'v1.*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Verify on Node 26
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+
+    services:
+      redis:
+        # redis:7.0.15, pinned to its multi-platform image index digest (Docker Hub, read Nov 26 2026).
+        image: redis:7.0.15@sha256:352c1fdadc91926edda08f45aeb3f27f37194c2f14101229c0523a11195c96e3
+        ports:
+          - 6399:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 12
+
+    env:
+      NEXT_TELEMETRY_DISABLED: '1'
+      NPM_CONFIG_FUND: 'false'
+      NPM_CONFIG_UPDATE_NOTIFIER: 'false'
+
+    steps:
+      - name: Check out the commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js from .nvmrc
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Record toolchain versions
+        run: |
+          echo "node $(node -v)"
+          echo "npm $(npm -v)"
+          node -e "if (process.versions.node.split('.')[0] !== '26') { console.error('Expected Node 26, got ' + process.version); process.exit(1) }"
+          sha256sum package.json package-lock.json .nvmrc
+
+      - name: Install dependencies exactly as locked (npm ci)
+        run: npm ci
+
+      - name: Check the installed dependency tree (npm ls --all)
+        run: npm ls --all
+
+      - name: Type check engine, API routes and tests
+        run: npx tsc -p tests/tsconfig.json --noEmit
+
+      - name: Type check pages and components (UI stand-ins)
+        run: npx tsc -p tests/ui/tsconfig.check.json --noEmit
+
+      - name: Confirm Redis is ready
+        run: |
+          node -e "
+            const s = require('node:net').connect(6399, '127.0.0.1');
+            s.setTimeout(5000, () => { console.error('Redis timed out'); process.exit(1) });
+            s.on('error', (e) => { console.error('Redis not reachable: ' + e.message); process.exit(1) });
+            s.on('connect', () => s.write('PING\r\n'));
+            s.on('data', (d) => { const r = d.toString().trim(); console.log('Redis replied ' + r); process.exit(r === '+PONG' ? 0 : 1) });
+          "
+
+      - name: Run the automated test suite
+        run: npm test
+
+      - name: UI smoke test (server-side render of every page)
+        run: npx tsx --tsconfig tests/ui/tsconfig.json tests/ui/smoke.tsx "$RUNNER_TEMP/ui"
+
+      - name: Production build (next build)
+        run: npm run build
+
+      - name: Confirm no tracked file changed (lockfile included)
+        run: git diff --exit-code
+
+      - name: Verify registry signatures and provenance (npm audit signatures)
+        run: npm audit signatures
+
+      # Dependency vulnerability gate.
+      # Any high or critical advisory fails this job, with ONE temporary, explicit exception:
+      #   GHSA-mrhx-c7xc-m3w5 in the package "zod" (zod <4.6.6, memory exhaustion on oversized
+      #   constrained collections). The only fix is the breaking zod 4 upgrade, which awaits a
+      #   separate decision. The finding is still printed in full and shown in the job summary.
+      # To remove the exception: delete the entry from ALLOWED below (then the job fails until zod is fixed).
+      # Anything the script cannot read with certainty (an npm error, unexpected JSON) also fails the job.
+      - name: Dependency vulnerability audit (high and critical block; one explicit Zod exception)
+        run: |
+          set +e
+          npm audit --audit-level=high | tee npm-audit.txt
+          echo "npm audit --audit-level=high exit status: ${PIPESTATUS[0]} (decided by the check below)"
+          npm audit --json > npm-audit.json
+          set -e
+          node - <<'NODE'
+          const fs = require('node:fs');
+          // Temporary exceptions: advisory id -> the only package it is accepted for.
+          const ALLOWED = { 'GHSA-mrhx-c7xc-m3w5': 'zod' };
+          const BLOCKING = new Set(['high', 'critical']);
+          const summaryPath = process.env.GITHUB_STEP_SUMMARY;
+          const lines = ['## Dependency vulnerability audit', ''];
+          const finish = (code) => {
+            lines.push('', '<details><summary>Full <code>npm audit --audit-level=high</code> output</summary>', '', '```');
+            try { lines.push(fs.readFileSync('npm-audit.txt', 'utf8').trimEnd()); } catch { lines.push('(output file missing)'); }
+            lines.push('```', '</details>');
+            if (summaryPath) fs.appendFileSync(summaryPath, lines.join('\n') + '\n');
+            process.exit(code);
+          };
+          const failClosed = (why) => {
+            console.log(`::error title=npm audit::${why}`);
+            lines.push(`**FAILED:** ${why}`);
+            finish(1);
+          };
+          let report;
+          try { report = JSON.parse(fs.readFileSync('npm-audit.json', 'utf8')); }
+          catch (err) { failClosed(`could not read npm audit JSON (${err.message})`); }
+          if (!report || typeof report !== 'object') failClosed('npm audit JSON is empty');
+          if (report.error) failClosed(`npm audit reported an error: ${report.error.summary || report.error.code || 'unknown'}`);
+          if (report.auditReportVersion !== 2 || typeof report.vulnerabilities !== 'object' || !report.metadata?.vulnerabilities) {
+            failClosed('unexpected npm audit JSON format (expected auditReportVersion 2)');
+          }
+          // Collect every advisory object; string entries in "via" only point at other packages in the same report.
+          const advisories = new Map();
+          for (const [pkg, vuln] of Object.entries(report.vulnerabilities)) {
+            if (!Array.isArray(vuln?.via)) failClosed(`unexpected "via" for ${pkg}`);
+            for (const via of vuln.via) {
+              if (typeof via === 'string') continue;
+              if (!via || typeof via !== 'object') failClosed(`unexpected advisory entry for ${pkg}`);
+              const id = String(via.url || '').match(/GHSA(-[23456789cfghjmpqrvwx]{4}){3}/)?.[0] || `source:${via.source ?? 'unknown'}`;
+              const key = `${id}|${via.name || pkg}`;
+              if (!advisories.has(key)) advisories.set(key, { id, pkg: via.name || pkg, severity: String(via.severity || '').toLowerCase(), title: via.title || '', range: via.range || '' });
+            }
+          }
+          const counted = Object.values(report.metadata.vulnerabilities);
+          const metaHighCritical = (report.metadata.vulnerabilities.high || 0) + (report.metadata.vulnerabilities.critical || 0);
+          const highCritical = [...advisories.values()].filter((a) => BLOCKING.has(a.severity));
+          if (counted.some((n) => typeof n !== 'number')) failClosed('unexpected vulnerability counts');
+          if (metaHighCritical > 0 && highCritical.length === 0) failClosed('npm counted high or critical vulnerabilities but listed no advisory for them');
+          const allowed = highCritical.filter((a) => ALLOWED[a.id] === a.pkg);
+          const blocked = highCritical.filter((a) => ALLOWED[a.id] !== a.pkg);
+          const row = (a) => `| ${a.severity} | ${a.pkg} ${a.range} | ${a.id} | ${a.title} |`;
+          lines.push(`Counts from npm: ${JSON.stringify(report.metadata.vulnerabilities)}`, '');
+          lines.push('Rule: every high or critical advisory blocks, except the explicitly allowlisted ones below (temporary).', '');
+          if (allowed.length) {
+            lines.push('### Allowlisted (temporary, still reported)', '', '| Severity | Package | Advisory | Title |', '|---|---|---|---|', ...allowed.map(row), '');
+            for (const a of allowed) console.log(`::warning title=npm audit (allowlisted)::${a.id} in ${a.pkg} (${a.severity}): ${a.title}. Temporarily allowed pending the Zod decision.`);
+          }
+          if (blocked.length) {
+            lines.push('### Blocking', '', '| Severity | Package | Advisory | Title |', '|---|---|---|---|', ...blocked.map(row), '');
+            for (const a of blocked) console.log(`::error title=npm audit::${a.id} in ${a.pkg} (${a.severity}): ${a.title}`);
+            lines.push(`**FAILED:** ${blocked.length} high or critical advisor${blocked.length === 1 ? 'y is' : 'ies are'} not allowlisted.`);
+            finish(1);
+          }
+          for (const id of Object.keys(ALLOWED)) {
+            if (!allowed.some((a) => a.id === id)) lines.push(`Note: allowlisted ${id} was not reported in this run; its exception can be removed.`);
+          }
+          lines.push(`**PASSED:** no high or critical advisory outside the allowlist (${allowed.length} allowlisted).`);
+          console.log(`npm audit gate passed: ${allowed.length} allowlisted, 0 blocking`);
+          finish(0);
+          NODE
